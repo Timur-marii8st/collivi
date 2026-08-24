@@ -10,7 +10,7 @@ async function main() {
   await initDb();
   console.log("DB ready");
 
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: { level: "error" } });
   await app.register(fastifyStatic, {
     root: join(__dirname, "..", "public"),
     prefix: "/",

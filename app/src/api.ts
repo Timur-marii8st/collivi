@@ -14,8 +14,16 @@ async function getUser(tgId: string): Promise<UserRow | null> {
 }
 
 export function registerApi(app: FastifyInstance) {
+  app.setErrorHandler((err, _req, reply) => {
+    app.log.error(err);
+    reply.code(500).send({ error: "internal", detail: err.message });
+  });
+
+  app.get("/api/health", async () => ({ ok: true }));
+
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api/")) return;
+    if (req.url === "/api/health") return;
     const initData = (req.headers["x-init-data"] as string) || "";
     const user = validateInitData(initData);
     if (!user) return reply.code(401).send({ error: "unauthorized" });
@@ -23,11 +31,29 @@ export function registerApi(app: FastifyInstance) {
   });
 
   // сохранить/обновить анкету
-  app.post("/api/me", async (req) => {
+  app.post("/api/me", async (req, reply) => {
     const tg = (req as any).tgUser;
     const p = req.body as Partial<UserRow>;
     // принудительная однополость: prefer_gender всегда совпадает с gender
     if ((p as any).gender) (p as any).prefer_gender = (p as any).gender;
+
+    // валидация
+    if (p.age !== undefined) {
+      const a = Number(p.age);
+      if (!Number.isInteger(a) || a < 16 || a > 60)
+        return reply.code(400).send({ error: "age 16-60" });
+    }
+    if (p.budget !== undefined) {
+      const b = Number(p.budget);
+      if (!Number.isInteger(b) || b < 5000 || b > 200000)
+        return reply.code(400).send({ error: "budget 5k-200k" });
+    }
+    if (p.gender !== undefined && !["m", "f"].includes(String(p.gender)))
+      return reply.code(400).send({ error: "gender" });
+    if (p.occupation !== undefined && String(p.occupation).length > 80)
+      return reply.code(400).send({ error: "occupation too long" });
+    if (p.districts !== undefined && !Array.isArray(p.districts))
+      return reply.code(400).send({ error: "districts" });
     await pool.query(
       `INSERT INTO users (tg_id, username, first_name) VALUES ($1,$2,$3)
        ON CONFLICT (tg_id) DO UPDATE SET updated_at = NOW()`,
@@ -100,6 +126,7 @@ export function registerApi(app: FastifyInstance) {
   app.post("/api/like", async (req, reply) => {
     const me = String((req as any).tgUser.id);
     const { to, like } = req.body as { to: string; like: boolean };
+    if (to === me) return reply.code(400).send({ error: "self" });
     await pool.query(
       `INSERT INTO ${like ? "likes" : "dislikes"} (from_tg, to_tg) VALUES ($1,$2)
        ON CONFLICT DO NOTHING`,

@@ -40,6 +40,8 @@ export default function GroupScreen() {
   // --- есть группа ---
   if (group) {
     const readyCount = group.members.filter((m) => m.ready).length;
+    const meReady = group.members.find((m) => String(m.tg_id) === String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id))?.ready;
+    // fallback: if initDataUnsafe not available, detect via ready flag of last member matching group creator? use first not-ready as me
     return (
       <div>
         <div className="card">
@@ -66,9 +68,27 @@ export default function GroupScreen() {
         </div>
 
         {group.status === "forming" && (
-          <p style={{ textAlign: "center", color: "var(--hint)", marginTop: 16, fontSize: 14 }}>
-            Ждём подтверждения: {readyCount}/{group.members.length}
-          </p>
+          <>
+            <p style={{ textAlign: "center", color: "var(--hint)", marginTop: 16, fontSize: 14 }}>
+              Ждём подтверждения: {readyCount}/{group.members.length}
+            </p>
+            {readyCount < group.members.length && (
+              <button className="next-btn" style={{ marginTop: 14 }} onClick={confirm}>
+                Подтвердить участие ✓
+              </button>
+            )}
+            <button
+              className="act-btn act-no"
+              style={{ marginTop: 10, width: "100%" }}
+              onClick={async () => {
+                if (!confirm("Выйти из группы?")) return;
+                await api("/api/group/leave", { method: "POST" });
+                load();
+              }}
+            >
+              Выйти из группы
+            </button>
+          </>
         )}
         {group.status === "confirmed" && (
           <div style={{ textAlign: "center", marginTop: 18 }}>
