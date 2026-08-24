@@ -54,41 +54,45 @@ export function registerApi(app: FastifyInstance) {
       return reply.code(400).send({ error: "occupation too long" });
     if (p.districts !== undefined && !Array.isArray(p.districts))
       return reply.code(400).send({ error: "districts" });
-    await pool.query(
-      `INSERT INTO users (tg_id, username, first_name) VALUES ($1,$2,$3)
-       ON CONFLICT (tg_id) DO UPDATE SET updated_at = NOW()`,
-      [tg.id, tg.username || null, tg.first_name || null]
-    );
+    // один UPSERT вместо 2-3 запросов — быстрее + исключает гонки
     const fields = [
       "age", "gender", "prefer_gender", "occupation", "budget",
       "districts", "move_in", "lease_months", "smoking", "alcohol",
       "sleep_time", "cleanliness", "guests", "parties",
       "pets_ok", "pets_has", "sociability", "interests",
-    ];
-    const sets: string[] = [];
-    const vals: any[] = [];
-    fields.forEach((f) => {
-      if ((p as any)[f] !== undefined) {
-        vals.push((p as any)[f]);
-        sets.push(`${f} = $${vals.length}`);
+    ] as const;
+
+    const cols: string[] = ["tg_id"];
+    const vals: any[] = [tg.id];
+    const placeholders: string[] = ["$1"];
+    const updates: string[] = [];
+
+    // профиль из Telegram
+    const profileUpdates: string[] = [];
+    if (tg.username) profileUpdates.push(`username = COALESCE(EXCLUDED.username, users.username)`);
+    if (tg.first_name) profileUpdates.push(`first_name = COALESCE(NULLIF(EXCLUDED.first_name::text,''), users.first_name)`);
+
+    for (const f of fields) {
+      const v = (p as any)[f];
+      if (v !== undefined) {
+        vals.push(v);
+        cols.push(f);
+        placeholders.push(`$${vals.length}`);
+        updates.push(`${f} = EXCLUDED.${f}`);
       }
-    });
-    if (sets.length) {
-      // sync Telegram profile (if provided)
-      if (tg.first_name) {
-        vals.push(tg.first_name);
-        sets.push(`first_name = COALESCE(NULLIF($${vals.length}::text, ''), first_name)`);
-      }
-      if (tg.username) {
-        vals.push(tg.username);
-        sets.push(`username = COALESCE($${vals.length}, username)`);
-      }
-      sets.push(`onboarded = TRUE`);
-      sets.push(`updated_at = NOW()`);
-      vals.push(tg.id);
-      await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE tg_id = $${vals.length}`, vals);
     }
-    return getUser(tg.id);
+    // всегда пишем username/first_name из Telegram, если есть
+    if (tg.username) { vals.push(tg.username); cols.push("username"); placeholders.push(`$${vals.length}`); }
+    if (tg.first_name) { vals.push(tg.first_name); cols.push("first_name"); placeholders.push(`$${vals.length}`); }
+    vals.push(true); cols.push("onboarded"); placeholders.push(`$${vals.length}`); updates.push("onboarded = EXCLUDED.onboarded");
+
+    updates.push("updated_at = NOW()");
+    if (profileUpdates.length) updates.push(...profileUpdates);
+
+    const sql = `INSERT INTO users (${cols.join(", ")}) VALUES (${placeholders.join(", ")})
+                 ON CONFLICT (tg_id) DO UPDATE SET ${updates.join(", ")} RETURNING *`;
+    const { rows } = await pool.query<UserRow>(sql, vals);
+    return rows[0] || null;
   });
 
   app.get("/api/me", async (req) => {
