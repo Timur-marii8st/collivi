@@ -1,7 +1,10 @@
 ﻿import { Bot, Context, session, SessionFlavor } from "grammy";
-import { BOT_TOKEN, ADMIN_IDS, WEBAPP_URL } from "./config";
+import { BOT_TOKEN, ADMIN_IDS, WEBAPP_URL, TG_PROXY } from "./config";
 import { pool } from "./db";
 import { openAppKeyboard } from "./notify";
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 interface SessionData {
   adminFlow?: string;
@@ -9,7 +12,12 @@ interface SessionData {
 }
 type MyCtx = Context & SessionFlavor<SessionData>;
 
-export const bot = new Bot<MyCtx>(BOT_TOKEN);
+export const bot = new Bot<MyCtx>(
+  BOT_TOKEN,
+  TG_PROXY
+    ? { client: { baseFetchConfig: { agent: new HttpsProxyAgent(TG_PROXY) as never } } }
+    : {}
+);
 bot.use(session({ initial: (): SessionData => ({}) }));
 
 if (!ADMIN_IDS.length) {
