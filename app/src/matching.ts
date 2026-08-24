@@ -56,13 +56,8 @@ function hardConflict(a: UserRow, b: UserRow): string | null {
   )
     return "move_in";
 
-  if (a.gender && b.gender) {
-    const okA =
-      a.prefer_gender === "any" || a.prefer_gender === b.gender || a.prefer_gender === "mixed";
-    const okB =
-      b.prefer_gender === "any" || b.prefer_gender === a.gender || b.prefer_gender === "mixed";
-    if (!okA || !okB) return "gender";
-  }
+  // строгая однополость: парни только с парнями, девушки только с девушками
+  if (a.gender && b.gender && a.gender !== b.gender) return "gender";
 
   if (a.smoking === "yes" && b.smoking === "no") return "smoking";
   if (b.smoking === "yes" && a.smoking === "no") return "smoking";

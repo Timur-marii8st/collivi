@@ -26,6 +26,8 @@ export function registerApi(app: FastifyInstance) {
   app.post("/api/me", async (req) => {
     const tg = (req as any).tgUser;
     const p = req.body as Partial<UserRow>;
+    // принудительная однополость: prefer_gender всегда совпадает с gender
+    if ((p as any).gender) (p as any).prefer_gender = (p as any).gender;
     await pool.query(
       `INSERT INTO users (tg_id, username, first_name) VALUES ($1,$2,$3)
        ON CONFLICT (tg_id) DO UPDATE SET updated_at = NOW()`,
@@ -39,21 +41,26 @@ export function registerApi(app: FastifyInstance) {
     ];
     const sets: string[] = [];
     const vals: any[] = [];
-    fields.forEach((f, i) => {
+    fields.forEach((f) => {
       if ((p as any)[f] !== undefined) {
-        sets.push(`${f} = $${i + 1}`);
         vals.push((p as any)[f]);
+        sets.push(`${f} = $${vals.length}`);
       }
     });
     if (sets.length) {
+      // sync Telegram profile (if provided)
+      if (tg.first_name) {
+        vals.push(tg.first_name);
+        sets.push(`first_name = COALESCE(NULLIF($${vals.length}::text, ''), first_name)`);
+      }
+      if (tg.username) {
+        vals.push(tg.username);
+        sets.push(`username = COALESCE($${vals.length}, username)`);
+      }
+      sets.push(`onboarded = TRUE`);
+      sets.push(`updated_at = NOW()`);
       vals.push(tg.id);
-      await pool.query(
-        `UPDATE users SET ${sets.join(", ")}, onboarded = TRUE,
-         first_name = COALESCE(NULLIF($${vals.length}::text, ''), first_name),
-         username = COALESCE($${vals.length + 1}, username),
-         updated_at = NOW() WHERE tg_id = $${vals.length}`,
-        [...vals, tg.id, tg.username || null]
-      );
+      await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE tg_id = $${vals.length}`, vals);
     }
     return getUser(tg.id);
   });

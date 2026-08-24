@@ -30,17 +30,26 @@ const STEPS = [
     options: [["m", "Парень"], ["f", "Девушка"]],
   },
   {
-    key: "prefer_gender",
-    title: "С кем хочешь жить?",
-    type: "chips",
-    options: [["any", "Не важно"], ["mixed", "Смешанная группа"], ["m", "Только парни"], ["f", "Только девушки"]],
-  },
-  {
     key: "occupation",
     title: "Где учишься / работаешь?",
-    sub: "Так соседям будет проще тебя узнать",
-    type: "text",
-    placeholder: "КФУ, ИВМиИТ",
+    sub: "Выбери из списка — так легче найти однокурсников",
+    type: "select",
+    options: [
+      ["КФУ", "КФУ — Казанский федеральный университет"],
+      ["КНИТУ (КХТИ)", "КНИТУ — КХТИ"],
+      ["КНИТУ-КАИ", "КНИТУ-КАИ"],
+      ["КГЭУ", "КГЭУ — Энергетический университет"],
+      ["КГАСУ", "КГАСУ — Архитектурно-строительный"],
+      ["КГМУ", "КГМУ — Медицинский университет"],
+      ["КГАВМ", "КГАВМ — Ветеринарная академия"],
+      ["РГУП", "РГУП — Правосудие"],
+      ["ТИСБИ", "ТИСБИ"],
+      ["ККИ РУК", "ККИ РУК"],
+      ["УВО «Университет управления «ТИСБИ»»", "Университет управления «ТИСБИ»"],
+      ["КФ РЭУ им. Плеханова", "РЭУ им. Плеханова (КФ)"],
+      ["Работаю", "Работаю"],
+      ["Другое", "Другое"],
+    ],
   },
   {
     key: "budget",
@@ -128,7 +137,6 @@ const STEPS = [
 export default function Onboarding({ me, onDone }) {
   const [step, setStep] = useState(0);
   const [data, setData] = useState({
-    prefer_gender: "any",
     districts: [],
     lease_months: 12,
     pets_ok: true,
@@ -149,8 +157,7 @@ export default function Onboarding({ me, onDone }) {
 
   function pick(v) {
     haptic();
-    if (s.key === "gender") setData({ ...data, gender: v });
-    else if (s.key === "prefer_gender") setData({ ...data, prefer_gender: v });
+    if (s.key === "gender") setData({ ...data, gender: v, prefer_gender: v });
     else if (s.key === "districts")
       setData({
         ...data,
@@ -184,7 +191,7 @@ export default function Onboarding({ me, onDone }) {
       const payload = {
         age: parseInt(data.age, 10),
         gender: data.gender,
-        prefer_gender: data.prefer_gender,
+        prefer_gender: data.gender,
         occupation: data.occupation,
         budget: parseInt(data.budget, 10),
         districts: data.districts,
@@ -235,6 +242,20 @@ export default function Onboarding({ me, onDone }) {
           onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
           onKeyDown={(e) => e.key === "Enter" && canNext && next()}
         />
+      )}
+
+      {s.type === "select" && (
+        <select
+          className="input"
+          value={val || ""}
+          autoFocus
+          onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
+        >
+          <option value="" disabled>Выбери вариант…</option>
+          {s.options.map(([v, label]) => (
+            <option key={v} value={v}>{label}</option>
+          ))}
+        </select>
       )}
 
       {(s.type === "chips" || s.type === "multichips") && (
