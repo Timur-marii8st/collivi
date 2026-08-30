@@ -128,6 +128,9 @@ async function adminMenu(ctx: MyCtx) {
   await ctx.reply("⚙️ Админ-панель", {
     reply_markup: {
       inline_keyboard: [
+        ...(WEBAPP_URL
+          ? [[{ text: "🖥 Панель управления", web_app: { url: WEBAPP_URL } }]]
+          : []),
         [
           { text: "📊 Статистика", callback_data: "adm_stats" },
           { text: "👥 Анкеты", callback_data: "adm_users" },

@@ -4,6 +4,7 @@ import { validateInitData } from "./auth";
 import { getCandidates, UserRow } from "./matching";
 import { notifyMutualLike, notifyGroupInvite, openAppKeyboard } from "./notify";
 import { bot } from "./bot";
+import { registerAdminApi, isAdminId } from "./admin";
 
 async function getUser(tgId: string): Promise<UserRow | null> {
   const { rows } = await pool.query<UserRow>(
@@ -28,7 +29,20 @@ export function registerApi(app: FastifyInstance) {
     const user = validateInitData(initData);
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     (req as any).tgUser = user;
+    // заблокированного пользователя дальше не пускаем (админа не проверяем)
+    if (!isAdminId(user.id)) {
+      const { rows } = await pool.query(
+        "SELECT ban_reason FROM users WHERE tg_id=$1 AND COALESCE(banned,FALSE)",
+        [user.id]
+      );
+      if (rows.length)
+        return reply
+          .code(403)
+          .send({ error: "banned", reason: rows[0].ban_reason || null });
+    }
   });
+
+  registerAdminApi(app);
 
   // сохранить/обновить анкету
   app.post("/api/me", async (req, reply) => {
@@ -92,12 +106,24 @@ export function registerApi(app: FastifyInstance) {
     const sql = `INSERT INTO users (${cols.join(", ")}) VALUES (${placeholders.join(", ")})
                  ON CONFLICT (tg_id) DO UPDATE SET ${updates.join(", ")} RETURNING *`;
     const { rows } = await pool.query<UserRow>(sql, vals);
-    return rows[0] || null;
+    if (!rows[0]) return null;
+    return { ...rows[0], is_admin: isAdminId(tg.id) };
   });
 
   app.get("/api/me", async (req) => {
     const tg = (req as any).tgUser;
-    return getUser(tg.id);
+    const is_admin = isAdminId(tg.id);
+    const user = await getUser(String(tg.id));
+    // админ без анкеты всё равно должен попасть в панель, поэтому не отдаём null
+    if (!user)
+      return {
+        tg_id: String(tg.id),
+        first_name: tg.first_name || "",
+        username: tg.username || null,
+        onboarded: false,
+        is_admin,
+      };
+    return { ...user, is_admin };
   });
 
   // карточки соседей

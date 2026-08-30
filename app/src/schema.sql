@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS users (
   interests TEXT[] DEFAULT '{}',
   status TEXT DEFAULT 'active',
   onboarded BOOLEAN DEFAULT FALSE,
+  banned BOOLEAN DEFAULT FALSE,
+  ban_reason TEXT,
+  banned_at TIMESTAMPTZ,
+  admin_note TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -60,3 +64,14 @@ CREATE TABLE IF NOT EXISTS apt_interest (
   apt_id INT, group_id INT, tg_id BIGINT, ts TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (apt_id, tg_id)
 );
+
+-- журнал действий администратора
+CREATE TABLE IF NOT EXISTS admin_log (
+  id SERIAL PRIMARY KEY,
+  admin_tg BIGINT,
+  action TEXT,
+  target TEXT,
+  details JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS admin_log_created_idx ON admin_log (created_at DESC);

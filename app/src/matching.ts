@@ -23,6 +23,10 @@ export interface UserRow {
   sociability: string | null; // high / medium / low
   interests: string[];
   onboarded: boolean;
+  banned?: boolean;
+  ban_reason?: string | null;
+  admin_note?: string | null;
+  status?: string;
 }
 
 export interface Candidate {
@@ -145,6 +149,7 @@ export async function getCandidates(me: UserRow, limit = 20): Promise<Candidate[
   const { rows } = await pool.query<UserRow>(
     `SELECT u.* FROM users u
      WHERE u.tg_id <> $1 AND u.onboarded AND u.status = 'active'
+       AND COALESCE(u.banned, FALSE) = FALSE
        AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.from_tg=$1 AND l.to_tg=u.tg_id)
        AND NOT EXISTS (SELECT 1 FROM dislikes d WHERE d.from_tg=$1 AND d.to_tg=u.tg_id)`,
     [me.tg_id]
