@@ -8,7 +8,14 @@ export default function Profile({ me }) {
   const rows = [
     ["Возраст", me.age],
     ["Занятость", me.occupation],
-    ["Бюджет за комнату", me.budget ? `${me.budget.toLocaleString("ru-RU")} ₽` : null],
+    [
+      "Бюджет за комнату",
+      me.budget_min != null && me.budget_max != null
+        ? `${me.budget_min.toLocaleString("ru-RU")}–${me.budget_max.toLocaleString("ru-RU")} ₽`
+        : me.budget
+          ? `${me.budget.toLocaleString("ru-RU")} ₽`
+          : null,
+    ],
     ["Районы", me.districts?.join(", ")],
     ["Курение", me.smoking === "yes" ? "курю" : "не курю"],
     ["Сон", me.sleep_time != null ? `ложусь ~${SLEEP(me.sleep_time)}` : null],
@@ -24,7 +31,7 @@ export default function Profile({ me }) {
     <div>
       <div className="card">
         <div className="card-head">
-          <div className="avatar">{me.first_name[0]}</div>
+          <div className="avatar">{(me.first_name?.[0] || "?").toUpperCase()}</div>
           <div>
             <div className="card-name">{me.first_name}</div>
             <div className="card-sub">@{me.username || "—"} · анкета активна ✅</div>

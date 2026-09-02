@@ -19,6 +19,30 @@ export function initData() {
   return tg?.initData || "";
 }
 
+// нативный alert() в Telegram часто подавляется — используем WebApp.showAlert
+export function alertUser(message) {
+  if (tg?.showAlert) {
+    try {
+      tg.showAlert(message);
+      return;
+    } catch (e) {}
+  }
+  window.alert(message);
+}
+
+// Promise<boolean> — подтверждение действия через диалог Telegram
+export function confirmUser(message) {
+  return new Promise((resolve) => {
+    if (tg?.showConfirm) {
+      try {
+        tg.showConfirm(message, (ok) => resolve(!!ok));
+        return;
+      } catch (e) {}
+    }
+    resolve(window.confirm(message));
+  });
+}
+
 export async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -29,6 +53,15 @@ export async function api(path, options = {}) {
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  if (!res.ok) {
+    let payload = {};
+    try {
+      payload = await res.json();
+    } catch (e) {}
+    const err = new Error(payload?.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.serverMessage = payload?.error || null;
+    throw err;
+  }
   return res.json();
 }

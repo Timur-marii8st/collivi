@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic } from "../api";
+import { api, haptic, alertUser, confirmUser } from "../api";
 
 export default function GroupScreen() {
   const [group, setGroup] = useState(undefined);
@@ -20,18 +20,48 @@ export default function GroupScreen() {
     try {
       await api("/api/group/create", { method: "POST", body: { members: selected } });
       haptic("success");
+      setSelected([]);
       load();
     } catch (e) {
-      alert(e.message);
+      haptic("error");
+      alertUser(e.serverMessage || "Не удалось создать группу. Попробуй ещё раз.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function confirm() {
+  async function confirmParticipation() {
+    setBusy(true);
     haptic();
-    await api("/api/group/confirm", { method: "POST" });
-    load();
+    try {
+      await api("/api/group/confirm", { method: "POST" });
+      haptic("success");
+      load();
+    } catch (e) {
+      haptic("error");
+      alertUser("Не удалось подтвердить участие. Попробуй ещё раз.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function leave() {
+    const ok = await confirmUser(
+      "Выйти из группы? Если останется меньше двух человек, группа распадётся."
+    );
+    if (!ok) return;
+    setBusy(true);
+    haptic();
+    try {
+      await api("/api/group/leave", { method: "POST" });
+      haptic("success");
+      load();
+    } catch (e) {
+      haptic("error");
+      alertUser("Не удалось выйти из группы. Попробуй ещё раз.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (group === undefined)
@@ -50,7 +80,7 @@ export default function GroupScreen() {
             </div>
           </div>
           {group.members.map((m) => (
-            <div className="member-row" key={m.tg_id}>
+            <div className="member-row" key={m.id}>
               <div className={"ready-dot " + (m.ready ? "on" : "")}>
                 {m.ready ? "✓" : "…"}
               </div>
@@ -66,9 +96,21 @@ export default function GroupScreen() {
         </div>
 
         {group.status === "forming" && (
-          <p style={{ textAlign: "center", color: "var(--hint)", marginTop: 16, fontSize: 14 }}>
-            Ждём подтверждения: {readyCount}/{group.members.length}
-          </p>
+          <>
+            <p style={{ textAlign: "center", color: "var(--hint)", marginTop: 16, fontSize: 14 }}>
+              Ждём подтверждения: {readyCount}/{group.members.length}
+            </p>
+            {!group.ready && (
+              <button
+                className="next-btn"
+                style={{ marginTop: 14 }}
+                disabled={busy}
+                onClick={confirmParticipation}
+              >
+                Подтвердить участие ✓
+              </button>
+            )}
+          </>
         )}
         {group.status === "confirmed" && (
           <div style={{ textAlign: "center", marginTop: 18 }}>
@@ -78,6 +120,15 @@ export default function GroupScreen() {
             </p>
           </div>
         )}
+
+        <button
+          className="act-btn act-no"
+          style={{ marginTop: 12, width: "100%" }}
+          disabled={busy}
+          onClick={leave}
+        >
+          Выйти из группы
+        </button>
       </div>
     );
   }
@@ -100,17 +151,17 @@ export default function GroupScreen() {
           </p>
           {conns.map((c) => (
             <div
-              key={c.tg_id}
-              className={"conn-card" + (selected.includes(c.tg_id) ? " selected" : "")}
+              key={c.id}
+              className={"conn-card" + (selected.includes(c.id) ? " selected" : "")}
               onClick={() => {
                 haptic();
                 setSelected((s) =>
-                  s.includes(c.tg_id) ? s.filter((x) => x !== c.tg_id) : [...s, c.tg_id]
+                  s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]
                 );
               }}
             >
               <div className="avatar" style={{ width: 44, height: 44, fontSize: 18 }}>
-                {c.first_name[0]}
+                {(c.first_name?.[0] || "?").toUpperCase()}
               </div>
               <div style={{ flex: 1 }}>
                 <b>{c.first_name}</b> {c.age ? `· ${c.age}` : ""}
@@ -118,7 +169,7 @@ export default function GroupScreen() {
                   {c.occupation || "—"} · до {c.budget?.toLocaleString("ru-RU")} ₽
                 </div>
               </div>
-              <div className={"check-circle" + (selected.includes(c.tg_id) ? " on" : "")}>✓</div>
+              <div className={"check-circle" + (selected.includes(c.id) ? " on" : "")}>✓</div>
             </div>
           ))}
           <button

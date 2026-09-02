@@ -25,7 +25,9 @@ function ScoreRing({ score }) {
 
 function tagsOf(c) {
   const t = [];
-  if (c.budget) t.push(`💰 до ${c.budget.toLocaleString("ru-RU")} ₽`);
+  if (c.budget_min != null && c.budget_max != null)
+    t.push(`💰 ${c.budget_min.toLocaleString("ru-RU")}–${c.budget_max.toLocaleString("ru-RU")} ₽`);
+  else if (c.budget) t.push(`💰 до ${c.budget.toLocaleString("ru-RU")} ₽`);
   if (c.smoking === "no") t.push("🚭 не курит");
   if (c.sleep_time != null) t.push(`🌙 ложится в ${SLEEP(c.sleep_time)}`);
   if (c.cleanliness >= 7) t.push(`🧹 чистота ${c.cleanliness}/10`);
@@ -51,7 +53,7 @@ export default function Neighbors() {
     const c = cands[idx];
     haptic();
     setLeaving(idx);
-    await api("/api/like", { method: "POST", body: { to: c.tg_id, like } }).catch(() => {});
+    await api("/api/like", { method: "POST", body: { to: c.id, like } }).catch(() => {});
     setTimeout(() => {
       setLeaving(-1);
       setIdx((i) => i + 1);
@@ -85,7 +87,7 @@ export default function Neighbors() {
     <div style={{ opacity: isLeaving ? 0 : 1, transform: isLeaving ? "scale(.96)" : "none", transition: "all .18s ease" }}>
       <div className="card">
         <div className="card-head">
-          <div className="avatar">{c.first_name[0]}</div>
+          <div className="avatar">{(c.first_name?.[0] || "?").toUpperCase()}</div>
           <div style={{ flex: 1 }}>
             <div className="card-name">
               {c.first_name}
