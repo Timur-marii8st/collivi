@@ -1,9 +1,9 @@
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { join } from "path";
-import { initDb } from "./db";
+import { initDb, pool } from "./db";
 import { registerApi } from "./api";
-import { startBot } from "./bot";
+import { startBot, bot } from "./bot";
 import { PORT, WEBAPP_URL, ADMIN_IDS } from "./config";
 
 async function main() {
@@ -27,6 +27,33 @@ async function main() {
     console.error("Bot failed:", e);
     process.exit(1);
   });
+
+  // graceful shutdown: при деплое/перезапуске контейнер должен отдавать
+  // текущие запросы и закрывать пул БД, а не падать по таймауту SIGKILL
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received, shutting down…`);
+    try {
+      await bot.stop();
+    } catch (e) {
+      console.error("bot.stop:", e);
+    }
+    try {
+      await app.close();
+    } catch (e) {
+      console.error("app.close:", e);
+    }
+    try {
+      await pool.end();
+    } catch (e) {
+      console.error("pool.end:", e);
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 main();

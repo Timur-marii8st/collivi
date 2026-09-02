@@ -1,7 +1,7 @@
 ﻿import { Bot, Context, session, SessionFlavor } from "grammy";
 import { BOT_TOKEN, ADMIN_IDS, WEBAPP_URL, TG_PROXY } from "./config";
 import { pool } from "./db";
-import { openAppKeyboard } from "./notify";
+import { openAppKeyboard, sendWithFloodRetry, sleep } from "./notify";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { HttpsProxyAgent } = require("https-proxy-agent");
@@ -28,6 +28,20 @@ if (!ADMIN_IDS.length) {
 
 export function isAdmin(ctx: MyCtx): boolean {
   return ADMIN_IDS.includes(ctx.from?.id || 0);
+}
+
+/**
+ * Ответ обычному пользователю на любое сообщение: раньше бот молчал,
+ * хотя в профиле написано «напиши нам в боте». Текст пересылаем админам.
+ */
+async function userSupportReply(ctx: MyCtx) {
+  await ctx.reply(
+    "Привет! Я бот сервиса «Свои» 🏠\n" +
+      "Изменить анкету, смотреть соседей и квартиры можно в приложении — кнопка ниже.\n" +
+      "Сообщение передали команде, ответим здесь в чате.",
+    { reply_markup: openAppKeyboard() }
+  );
+  for (const id of ADMIN_IDS) await ctx.forwardMessage(id).catch(() => {});
 }
 
 // ---------- пользовательские команды ----------
@@ -79,13 +93,23 @@ bot.callbackQuery(/^grp_no:(\d+)$/, async (ctx) => {
     groupId,
     ctx.from!.id,
   ]);
-  // если остался один — расформировать
+  await pool.query("UPDATE users SET status='active' WHERE tg_id=$1", [
+    ctx.from!.id,
+  ]);
+  // если остался один — расформировать и снять статус с оставшегося
   const { rows } = await pool.query(
-    "SELECT COUNT(*)::int AS n FROM group_members WHERE group_id=$1",
+    "SELECT tg_id FROM group_members WHERE group_id=$1",
     [groupId]
   );
-  if (rows[0].n < 2)
+  if (rows.length < 2) {
+    await pool.query("DELETE FROM apt_interest WHERE group_id=$1", [groupId]);
+    await pool.query("DELETE FROM group_members WHERE group_id=$1", [groupId]);
     await pool.query("DELETE FROM groups WHERE id=$1", [groupId]);
+    if (rows.length === 1)
+      await pool.query("UPDATE users SET status='active' WHERE tg_id=$1", [
+        rows[0].tg_id,
+      ]);
+  }
   await ctx.answerCallbackQuery({ text: "Ок, без обид 🙂" });
   await ctx.editMessageReplyMarkup({ reply_markup: undefined });
 });
@@ -275,8 +299,8 @@ bot.callbackQuery(/^apt_push:(\d+):(\d+)$/, async (ctx) => {
       `🏠 *Новая квартира под вашу группу!*\n\n` +
       `*${apt.title}*\n${apt.rooms}-комн · ${apt.district} · ~${Math.ceil(apt.price / apt.rooms).toLocaleString("ru-RU")} ₽/чел\n` +
       (apt.address ? `📍 ${apt.address}\n` : "") +
-      `\nОтметь «интересно» в приложении — свяжем вас с собственником.`;
-    try {
+      `\nОтметьте «интересно» в приложении — свяжем вас с собственником.`;
+    await sendWithFloodRetry(async () => {
       if (apt.photo_id)
         await bot.api.sendPhoto(m.tg_id, apt.photo_id, {
           caption,
@@ -288,14 +312,15 @@ bot.callbackQuery(/^apt_push:(\d+):(\d+)$/, async (ctx) => {
           parse_mode: "Markdown",
           reply_markup: openAppKeyboard(),
         });
-    } catch {}
+    });
+    await sleep(50);
   }
   await ctx.answerCallbackQuery({ text: "Отправлено ✅" });
   await ctx.editMessageReplyMarkup({ reply_markup: undefined });
 });
 
 bot.on("message:text", async (ctx) => {
-  if (!isAdmin(ctx)) return;
+  if (!isAdmin(ctx)) return userSupportReply(ctx);
   const flow = ctx.session.adminFlow;
   if (!flow) return;
   const d = ctx.session.aptDraft || {};
@@ -358,10 +383,13 @@ bot.on("message:text", async (ctx) => {
       const { rows } = await pool.query("SELECT tg_id FROM users WHERE onboarded");
       let ok = 0;
       for (const r of rows) {
-        try {
-          await bot.api.copyMessage(r.tg_id, ctx.chat.id, ctx.message.message_id);
-          ok++;
-        } catch {}
+        // пауза + обработка 429: без этого на десятках адресатов рассылка
+        // молча умирала на лимитах Telegram
+        const sent = await sendWithFloodRetry(() =>
+          bot.api.copyMessage(r.tg_id, ctx.chat.id, ctx.message.message_id)
+        );
+        if (sent) ok++;
+        await sleep(50);
       }
       ctx.session.adminFlow = undefined;
       await ctx.reply(`📣 Отправлено ${ok}/${rows.length}`);
@@ -372,18 +400,28 @@ bot.on("message:text", async (ctx) => {
 
 // фото от админа прикрепляем к последней созданной квартире
 bot.on("message:photo", async (ctx) => {
-  if (!isAdmin(ctx)) return;
+  if (!isAdmin(ctx)) return userSupportReply(ctx);
   const pending = (
     await pool.query("SELECT id FROM apartments ORDER BY created_at DESC LIMIT 1")
   ).rows[0];
   const fileId = ctx.message.photo.pop()?.file_id;
   if (pending && fileId) {
-    await pool.query("UPDATE apartments SET photo_id=$1 WHERE id=$2", [
-      fileId,
-      pending.id,
-    ]);
+    // сразу достаём file_path, чтобы приложению не пришлось дёргать getFile
+    let filePath: string | null = null;
+    try {
+      filePath = (await bot.api.getFile(fileId)).file_path || null;
+    } catch {}
+    await pool.query(
+      "UPDATE apartments SET photo_id=$1, photo_path=$2 WHERE id=$3",
+      [fileId, filePath, pending.id]
+    );
     await ctx.reply(`📷 Фото прикреплено к квартире #${pending.id}.`);
   }
+});
+
+// любой другой контент от пользователя (стикеры, документы, кружочки…)
+bot.on("message", async (ctx) => {
+  if (!isAdmin(ctx)) await userSupportReply(ctx);
 });
 
 bot.callbackQuery(/^apt_saved:(\d+)$/, async (ctx) => {
@@ -394,5 +432,31 @@ bot.callbackQuery(/^apt_saved:(\d+)$/, async (ctx) => {
 export async function startBot() {
   bot.catch((err) => console.error("Bot error:", err));
   await bot.init();
+
+  // оформление бота: команды, описания, кнопка меню.
+  // Раньше чат с ботом был «голым»: без команд и описаний.
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Как это работает" },
+      { command: "profile", description: "Моя анкета" },
+    ]);
+    await bot.api.setMyDescription(
+      "Совместная аренда в Казани: найди соседей под свой образ жизни, соберите группу и получите подборку квартир под общий бюджет."
+    );
+    await bot.api.setMyShortDescription(
+      "Поиск соседей для совместной аренды"
+    );
+    if (WEBAPP_URL)
+      await bot.api.setChatMenuButton({
+        menu_button: {
+          type: "web_app",
+          text: "Открыть",
+          web_app: { url: WEBAPP_URL },
+        },
+      });
+  } catch (e) {
+    console.error("Bot meta setup failed:", e);
+  }
+
   await bot.start({ onStart: () => console.log("Bot started (polling)") });
 }

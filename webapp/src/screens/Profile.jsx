@@ -4,7 +4,7 @@ const SLEEP = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
 const GUESTS = { never: "без гостей", sometimes: "гости иногда", often: "гости свободно" };
 const SOCIABILITY = { high: "общительный(ая)", medium: "по настроению", low: "тихий(ая)" };
 
-export default function Profile({ me }) {
+export default function Profile({ me, onEdit }) {
   const rows = [
     ["Возраст", me.age],
     ["Занятость", me.occupation],
@@ -40,8 +40,11 @@ export default function Profile({ me }) {
           </div>
         ))}
       </div>
-      <p style={{ textAlign: "center", color: "var(--hint)", fontSize: 12.5, marginTop: 16 }}>
-        Чтобы изменить анкету — напиши нам в боте
+      <button className="next-btn" style={{ marginTop: 16 }} onClick={onEdit}>
+        Изменить анкету
+      </button>
+      <p style={{ textAlign: "center", color: "var(--hint)", fontSize: 12.5, marginTop: 10 }}>
+        Изменения сразу попадут в подбор соседей
       </p>
     </div>
   );

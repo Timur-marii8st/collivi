@@ -43,9 +43,16 @@ function hoursDiff(a: number, b: number): number {
 const MOVE_ORDER = ["week", "twoweeks", "month", "later"];
 
 /** Жёсткие фильтры. Возвращает строку-причину отказа или null */
-function hardConflict(a: UserRow, b: UserRow): string | null {
+function hardConflict(
+  a: UserRow,
+  b: UserRow,
+  budgetTolerance = 5000
+): string | null {
   if (!a.budget || !b.budget) return "budget";
-  if (Math.max(a.budget, b.budget) - Math.min(a.budget, b.budget) > 5000)
+  if (
+    Math.max(a.budget, b.budget) - Math.min(a.budget, b.budget) >
+    budgetTolerance
+  )
     return "budget";
 
   const aAny = a.districts.length === 0 || a.districts.includes("Любой");
@@ -154,13 +161,21 @@ export async function getCandidates(me: UserRow, limit = 20): Promise<Candidate[
        AND NOT EXISTS (SELECT 1 FROM dislikes d WHERE d.from_tg=$1 AND d.to_tg=u.tg_id)`,
     [me.tg_id]
   );
-  const out: Candidate[] = [];
-  for (const u of rows) {
-    const conflict = hardConflict(me, u);
-    if (conflict) continue;
-    const s = softScore(me, u);
-    out.push({ user: u, score: s.pts, reasons: s.label ? [s.label] : [] });
+  // холодный старт: на маленькой базе жёсткие фильтры дают пустой экран,
+  // поэтому при нуле кандидатов ослабляем только бюджет (±5к -> ±10к).
+  // Пол, районы, заселение, курение и питомцы остаются строгими.
+  for (const budgetTolerance of [5000, 10000]) {
+    const out: Candidate[] = [];
+    for (const u of rows) {
+      const conflict = hardConflict(me, u, budgetTolerance);
+      if (conflict) continue;
+      const s = softScore(me, u);
+      out.push({ user: u, score: s.pts, reasons: s.label ? [s.label] : [] });
+    }
+    if (out.length) {
+      out.sort((x, y) => y.score - x.score);
+      return out.slice(0, limit);
+    }
   }
-  out.sort((x, y) => y.score - x.score);
-  return out.slice(0, limit);
+  return [];
 }

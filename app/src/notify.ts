@@ -1,6 +1,33 @@
 ﻿import { Bot } from "grammy";
 import { WEBAPP_URL } from "./config";
 
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Отправка с учётом лимитов Telegram: при 429 ждём retry_after и повторяем один раз.
+ * Возвращает, дошло ли сообщение.
+ */
+export async function sendWithFloodRetry<T>(
+  send: () => Promise<T>
+): Promise<boolean> {
+  try {
+    await send();
+    return true;
+  } catch (e: any) {
+    const retryAfter = e?.parameters?.retry_after;
+    if (retryAfter) {
+      await sleep((Number(retryAfter) + 1) * 1000);
+      try {
+        await send();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
 export function openAppKeyboard(text = "Открыть приложение") {
   return {
     inline_keyboard: [

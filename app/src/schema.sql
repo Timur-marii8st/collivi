@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS apartments (
   id SERIAL PRIMARY KEY,
   title TEXT, rooms INT, price INT, district TEXT, address TEXT,
   isolated_rooms BOOLEAN DEFAULT TRUE, contact TEXT, photo_id TEXT,
+  photo_path TEXT,
   status TEXT DEFAULT 'available',
   created_by BIGINT, created_at TIMESTAMPTZ DEFAULT NOW()
 );

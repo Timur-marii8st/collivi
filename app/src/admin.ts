@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "./db";
 import { ADMIN_IDS } from "./config";
 import { bot } from "./bot";
-import { openAppKeyboard } from "./notify";
+import { openAppKeyboard, sendWithFloodRetry, sleep } from "./notify";
 
 export function isAdminId(tgId: number | string): boolean {
   return ADMIN_IDS.includes(Number(tgId));
@@ -483,12 +483,15 @@ export function registerAdminApi(app: FastifyInstance) {
     const { rows } = await pool.query(`SELECT tg_id FROM users WHERE ${where}`);
     let ok = 0;
     for (const r of rows) {
-      try {
-        await bot.api.sendMessage(r.tg_id, text.slice(0, 4000), {
+      // Telegram лимитирует рассылки (~30 msg/s, на практике меньше):
+      // пауза между отправками + повтор при 429, иначе молча теряем адресатов
+      const sent = await sendWithFloodRetry(() =>
+        bot.api.sendMessage(r.tg_id, text.slice(0, 4000), {
           reply_markup: openAppKeyboard(),
-        });
-        ok++;
-      } catch {}
+        })
+      );
+      if (sent) ok++;
+      await sleep(60);
     }
     await logAction(adminTg(req), "broadcast", target || "onboarded", {
       sent: ok,

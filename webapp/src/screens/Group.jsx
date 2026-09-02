@@ -28,7 +28,7 @@ export default function GroupScreen() {
     }
   }
 
-  async function confirm() {
+  async function confirmParticipation() {
     haptic();
     await api("/api/group/confirm", { method: "POST" });
     load();
@@ -72,16 +72,22 @@ export default function GroupScreen() {
             <p style={{ textAlign: "center", color: "var(--hint)", marginTop: 16, fontSize: 14 }}>
               Ждём подтверждения: {readyCount}/{group.members.length}
             </p>
-            {readyCount < group.members.length && (
-              <button className="next-btn" style={{ marginTop: 14 }} onClick={confirm}>
+            {!meReady && readyCount < group.members.length && (
+              <button className="next-btn" style={{ marginTop: 14 }} onClick={confirmParticipation}>
                 Подтвердить участие ✓
               </button>
+            )}
+            {meReady && (
+              <p style={{ textAlign: "center", color: "var(--btn)", marginTop: 14, fontSize: 14, fontWeight: 600 }}>
+                Ты подтвердил участие ✓
+              </p>
             )}
             <button
               className="act-btn act-no"
               style={{ marginTop: 10, width: "100%" }}
               onClick={async () => {
-                if (!confirm("Выйти из группы?")) return;
+                // важно: именно window.confirm — локальной функции больше нет
+                if (!window.confirm("Выйти из группы?")) return;
                 await api("/api/group/leave", { method: "POST" });
                 load();
               }}

@@ -22,6 +22,8 @@ const COLUMN_MIGRATIONS: string[] = [
   "ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT",
   "ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ",
   "ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_note TEXT",
+  // file_path картинки в Telegram: не дёргать getFile на каждый запрос фото
+  "ALTER TABLE apartments ADD COLUMN IF NOT EXISTS photo_path TEXT",
 ];
 
 export async function initDb() {

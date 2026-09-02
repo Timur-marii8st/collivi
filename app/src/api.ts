@@ -1,10 +1,15 @@
 import { FastifyInstance } from "fastify";
+import https from "https";
 import { pool } from "./db";
 import { validateInitData } from "./auth";
 import { getCandidates, UserRow } from "./matching";
-import { notifyMutualLike, notifyGroupInvite, openAppKeyboard } from "./notify";
-import { bot } from "./bot";
+import { notifyMutualLike, notifyGroupInvite } from "./notify";
+import { bot, checkGroupComplete } from "./bot";
 import { registerAdminApi, isAdminId } from "./admin";
+import { BOT_TOKEN, TG_PROXY } from "./config";
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 async function getUser(tgId: string): Promise<UserRow | null> {
   const { rows } = await pool.query<UserRow>(
@@ -14,10 +19,48 @@ async function getUser(tgId: string): Promise<UserRow | null> {
   return rows[0] || null;
 }
 
+/**
+ * Поля анкеты, которые можно отдавать пользователю. Всё остальное
+ * (бан-поля, заметка админа, служебные таймстампы) не покидает сервер.
+ */
+const PUBLIC_USER_FIELDS = [
+  "tg_id",
+  "first_name",
+  "username",
+  "age",
+  "gender",
+  "prefer_gender",
+  "occupation",
+  "budget",
+  "districts",
+  "move_in",
+  "lease_months",
+  "smoking",
+  "alcohol",
+  "sleep_time",
+  "cleanliness",
+  "guests",
+  "parties",
+  "pets_ok",
+  "pets_has",
+  "sociability",
+  "interests",
+  "status",
+  "onboarded",
+] as const;
+
+function publicUser(u: UserRow) {
+  const out: Record<string, unknown> = {};
+  for (const f of PUBLIC_USER_FIELDS)
+    out[f] = (u as unknown as Record<string, unknown>)[f];
+  return out;
+}
+
 export function registerApi(app: FastifyInstance) {
+  // наружу отдаём только общий текст: детали ошибок БД не должны попасть клиенту
   app.setErrorHandler((err, _req, reply) => {
     app.log.error(err);
-    reply.code(500).send({ error: "internal", detail: err.message });
+    reply.code(500).send({ error: "Ошибка сервера. Попробуй ещё раз." });
   });
 
   app.get("/api/health", async () => ({ ok: true }));
@@ -107,7 +150,7 @@ export function registerApi(app: FastifyInstance) {
                  ON CONFLICT (tg_id) DO UPDATE SET ${updates.join(", ")} RETURNING *`;
     const { rows } = await pool.query<UserRow>(sql, vals);
     if (!rows[0]) return null;
-    return { ...rows[0], is_admin: isAdminId(tg.id) };
+    return { ...publicUser(rows[0]), is_admin: isAdminId(tg.id) };
   });
 
   app.get("/api/me", async (req) => {
@@ -123,7 +166,7 @@ export function registerApi(app: FastifyInstance) {
         onboarded: false,
         is_admin,
       };
-    return { ...user, is_admin };
+    return { ...publicUser(user), is_admin };
   });
 
   // карточки соседей
@@ -202,37 +245,64 @@ export function registerApi(app: FastifyInstance) {
     const { members } = req.body as { members: string[] };
     if (!members.length || members.length > 3)
       return reply.code(400).send({ error: "1-3 соседа" });
-    const all = [me, ...members];
-    for (const m of members) {
-      const { rows } = await pool.query(
-        "SELECT 1 FROM likes a JOIN likes b ON a.from_tg=b.to_tg AND a.to_tg=b.from_tg WHERE a.from_tg=$1 AND b.from_tg=$2",
-        [me, m]
-      );
-      if (!rows.length) return reply.code(400).send({ error: "нет взаимного мэтча" });
-    }
-    // у участника не должно быть активной группы
-    for (const id of all) {
-      const { rows } = await pool.query(
-        `SELECT 1 FROM group_members gm JOIN groups g ON g.id=gm.group_id
-         WHERE gm.tg_id=$1 AND g.status IN ('forming','confirmed')`,
-        [id]
-      );
-      if (rows.length) return reply.code(400).send({ error: "у кого-то уже есть группа" });
-    }
-    const { rows } = await pool.query(
-      "INSERT INTO groups DEFAULT VALUES RETURNING id"
-    );
-    const groupId = rows[0].id;
-    for (const id of all)
-      await pool.query(
-        "INSERT INTO group_members (group_id, tg_id, ready) VALUES ($1,$2,$3)",
-        [groupId, id, id === me]
-      );
+    const all = Array.from(new Set([me, ...members]));
+    if (all.length !== members.length + 1)
+      return reply.code(400).send({ error: "дубли в составе" });
 
-    const creator = await getUser(me);
-    for (const m of members)
-      notifyGroupInvite(bot, m, creator?.first_name || "Сосед", groupId).catch(() => {});
-    return { groupId };
+    // весь чек+инсерт в одной транзакции: без неё две параллельные заявки
+    // плодили мёртвые группы, а дубль участника ронял запрос на 500
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // лочим строки участников: параллельное создание группы тем же составом
+      // встанет в очередь и увидит актуальное состояние
+      await client.query(
+        "SELECT tg_id FROM users WHERE tg_id = ANY($1::bigint[]) FOR UPDATE",
+        [all]
+      );
+      for (const m of members) {
+        const { rows } = await client.query(
+          "SELECT 1 FROM likes a JOIN likes b ON a.from_tg=b.to_tg AND a.to_tg=b.from_tg WHERE a.from_tg=$1 AND b.from_tg=$2",
+          [me, m]
+        );
+        if (!rows.length) {
+          await client.query("ROLLBACK");
+          return reply.code(400).send({ error: "нет взаимного мэтча" });
+        }
+      }
+      // у участника не должно быть активной группы
+      for (const id of all) {
+        const { rows } = await client.query(
+          `SELECT 1 FROM group_members gm JOIN groups g ON g.id=gm.group_id
+           WHERE gm.tg_id=$1 AND g.status IN ('forming','confirmed')`,
+          [id]
+        );
+        if (rows.length) {
+          await client.query("ROLLBACK");
+          return reply.code(400).send({ error: "у кого-то уже есть группа" });
+        }
+      }
+      const { rows } = await client.query(
+        "INSERT INTO groups DEFAULT VALUES RETURNING id"
+      );
+      const groupId = rows[0].id;
+      for (const id of all)
+        await client.query(
+          "INSERT INTO group_members (group_id, tg_id, ready) VALUES ($1,$2,$3)",
+          [groupId, id, id === me]
+        );
+      await client.query("COMMIT");
+
+      const creator = await getUser(me);
+      for (const m of members)
+        notifyGroupInvite(bot, m, creator?.first_name || "Сосед", groupId).catch(() => {});
+      return { groupId };
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
   });
 
   // моя группа
@@ -263,13 +333,19 @@ export function registerApi(app: FastifyInstance) {
     return { ...g, members: members.rows, totalBudget: budget, apartment };
   });
 
-  // подтвердить участие в группе (из бота или приложения)
+  // подтвердить участие в группе (из бота или приложения).
+  // Без checkGroupComplete группа навечно зависала в 'forming', если последний
+  // участник подтверждал в приложении, а не кнопкой в боте.
   app.post("/api/group/confirm", async (req) => {
     const me = String((req as any).tgUser.id);
-    await pool.query(
-      "UPDATE group_members SET ready=TRUE WHERE tg_id=$1",
+    const { rows } = await pool.query(
+      `UPDATE group_members gm SET ready=TRUE
+       FROM groups g
+       WHERE gm.group_id = g.id AND gm.tg_id = $1 AND g.status = 'forming'
+       RETURNING gm.group_id`,
       [me]
     );
+    if (rows.length) await checkGroupComplete(rows[0].group_id);
     return { ok: true };
   });
 
@@ -281,11 +357,28 @@ export function registerApi(app: FastifyInstance) {
         (SELECT id FROM groups WHERE status IN ('forming')) RETURNING group_id`,
       [me]
     );
-    if (rows.length)
+    if (rows.length) {
+      const groupId = rows[0].group_id;
       await pool.query(
         "UPDATE users SET status='active' WHERE tg_id=$1",
         [me]
       );
+      // группа из одного человека зависала в 'forming' и блокировала создание новой
+      const left = await pool.query(
+        "SELECT tg_id FROM group_members WHERE group_id=$1",
+        [groupId]
+      );
+      if (left.rows.length < 2) {
+        await pool.query("DELETE FROM apt_interest WHERE group_id=$1", [groupId]);
+        await pool.query("DELETE FROM group_members WHERE group_id=$1", [groupId]);
+        await pool.query("DELETE FROM groups WHERE id=$1", [groupId]);
+        if (left.rows.length === 1)
+          await pool.query(
+            "UPDATE users SET status='active' WHERE tg_id=$1",
+            [left.rows[0].tg_id]
+          );
+      }
+    }
     return { ok: true };
   });
 
@@ -336,7 +429,8 @@ export function registerApi(app: FastifyInstance) {
     const me = String((req as any).tgUser.id);
     const aptId = parseInt((req.params as any).id, 10);
     const grp = await pool.query(
-      `SELECT group_id FROM group_members WHERE tg_id=$1 LIMIT 1`,
+      `SELECT group_id FROM group_members WHERE tg_id=$1
+       ORDER BY joined_at DESC LIMIT 1`,
       [me]
     );
     if (!grp.rows.length) return reply.code(400).send({ error: "нет группы" });
@@ -346,5 +440,70 @@ export function registerApi(app: FastifyInstance) {
       [aptId, grp.rows[0].group_id, me]
     );
     return { ok: true };
+  });
+
+  // фото квартиры: в базе лежит Telegram file_id, который нельзя вставить в <img>,
+  // поэтому отдаём байты через себя (ушедший в теле наружу токен = полная компрометация бота)
+  app.get("/api/apartments/:id/photo", async (req, reply) => {
+    const aptId = parseInt((req.params as any).id, 10);
+    const { rows } = await pool.query(
+      "SELECT photo_id, photo_path FROM apartments WHERE id=$1",
+      [aptId]
+    );
+    const apt = rows[0];
+    if (!apt || !apt.photo_id) return reply.code(404).send({ error: "нет фото" });
+
+    let filePath: string | undefined = apt.photo_path || undefined;
+    if (!filePath) {
+      try {
+        const f = await bot.api.getFile(apt.photo_id);
+        filePath = f.file_path;
+        // кэшируем, чтобы не дёргать getFile на каждый показ карточки
+        if (filePath)
+          await pool.query("UPDATE apartments SET photo_path=$1 WHERE id=$2", [
+            filePath,
+            aptId,
+          ]);
+      } catch {
+        return reply.code(404).send({ error: "нет фото" });
+      }
+    }
+    if (!filePath) return reply.code(404).send({ error: "нет фото" });
+
+    reply.hijack();
+    await new Promise<void>((resolve) => {
+      const opts: https.RequestOptions = TG_PROXY
+        ? { agent: new HttpsProxyAgent(TG_PROXY) }
+        : {};
+      https
+        .get(
+          `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
+          opts,
+          (up) => {
+            if (!up.statusCode || up.statusCode >= 400) {
+              up.resume();
+              reply.raw.writeHead(502, { "Content-Type": "application/json" });
+              reply.raw.end(JSON.stringify({ error: "фото недоступно" }));
+              return resolve();
+            }
+            reply.raw.writeHead(200, {
+              "Content-Type": up.headers["content-type"] || "image/jpeg",
+              "Cache-Control": "public, max-age=86400",
+            });
+            up.pipe(reply.raw);
+            up.on("end", resolve);
+            up.on("error", () => resolve());
+          }
+        )
+        .on("error", () => {
+          if (!reply.raw.headersSent) {
+            reply.raw.writeHead(502, { "Content-Type": "application/json" });
+            reply.raw.end(JSON.stringify({ error: "фото недоступно" }));
+          } else {
+            reply.raw.end();
+          }
+          resolve();
+        });
+    });
   });
 }

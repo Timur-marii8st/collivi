@@ -22,6 +22,9 @@ const STEPS = [
     sub: null,
     type: "number",
     placeholder: "18",
+    min: 16,
+    max: 60,
+    hint: "Возраст — от 16 до 60",
   },
   {
     key: "gender",
@@ -58,6 +61,9 @@ const STEPS = [
     type: "number",
     placeholder: "15000",
     suffix: " ₽",
+    min: 5000,
+    max: 200000,
+    hint: "Бюджет — от 5 000 до 200 000 ₽",
   },
   {
     key: "districts",
@@ -134,23 +140,74 @@ const STEPS = [
   },
 ];
 
-export default function Onboarding({ me, onDone }) {
+export default function Onboarding({ initial, onDone, onCancel }) {
+  // initial приходит при редактировании анкеты из «Профиля»
+  const editing = !!initial?.onboarded;
   const [step, setStep] = useState(0);
-  const [data, setData] = useState({
-    districts: [],
-    lease_months: 12,
-    pets_ok: true,
-    pets_has: false,
-    interests: [],
+  const [data, setData] = useState(() => {
+    const base = {
+      districts: [],
+      lease_months: 12,
+      pets_ok: true,
+      pets_has: false,
+      interests: [],
+      // без дефолтов у слайдеров «Дальше» была заблокирована,
+      // пока человек не подвинет ползунок — тупик без объяснения
+      sleep_time: 23,
+      cleanliness: 5,
+    };
+    if (!editing) return base;
+    // в БД час сна хранится как 0-23, а шкала 21-27 (25 = 01:00);
+    // возвращаем ночные часы обратно на шкалу
+    const sleep =
+      initial.sleep_time == null
+        ? 23
+        : initial.sleep_time >= 21
+          ? initial.sleep_time
+          : initial.sleep_time + 24;
+    return {
+      ...base,
+      age: initial.age ?? "",
+      gender: initial.gender ?? undefined,
+      prefer_gender: initial.gender ?? undefined,
+      occupation: initial.occupation ?? "",
+      budget: initial.budget ?? "",
+      districts: initial.districts || [],
+      move_in: initial.move_in ?? undefined,
+      lease_months: initial.lease_months || 12,
+      smoking: initial.smoking ?? undefined,
+      alcohol: initial.alcohol ?? undefined,
+      sleep_time: sleep,
+      cleanliness: initial.cleanliness ?? 5,
+      guests: initial.guests ?? undefined,
+      parties: initial.parties ?? undefined,
+      pets: initial.pets_has ? "has" : initial.pets_ok ? "ok" : "no",
+      pets_ok: !!initial.pets_ok,
+      pets_has: !!initial.pets_has,
+      sociability: initial.sociability ?? undefined,
+      interests: initial.interests || [],
+    };
   });
   const [saving, setSaving] = useState(false);
 
   const s = STEPS[step];
   const val = data[s.key];
 
+  // возраст и бюджет проверяем сразу на шаге, а не сервером в самом конце
+  const numVal =
+    s.type === "number" ? parseInt(String(val ?? "").trim(), 10) : null;
+  const numError =
+    s.type === "number" &&
+    String(val ?? "").trim() !== "" &&
+    (!Number.isFinite(numVal) ||
+      (s.min !== undefined && numVal < s.min) ||
+      (s.max !== undefined && numVal > s.max))
+      ? s.hint
+      : null;
+
   const canNext =
     s.type === "number" || s.type === "text"
-      ? String(val ?? "").trim().length > 0
+      ? String(val ?? "").trim().length > 0 && !numError
       : Array.isArray(val)
         ? val.length > 0
         : val !== undefined;
@@ -206,7 +263,7 @@ export default function Onboarding({ me, onDone }) {
         pets_ok: data.pets !== "no",
         sociability: data.sociability,
         interests: data.interests,
-        lease_months: 12,
+        lease_months: data.lease_months || 12,
       };
       const saved = await api("/api/me", { method: "POST", body: payload });
       haptic("success");
@@ -222,6 +279,11 @@ export default function Onboarding({ me, onDone }) {
 
   return (
     <div className="onboard">
+      {onCancel && (
+        <div style={{ marginBottom: 10 }}>
+          <button className="chip" onClick={onCancel}>← Отменить</button>
+        </div>
+      )}
       <div className="progress">
         <div style={{ width: pct + "%" }} />
       </div>
@@ -242,6 +304,11 @@ export default function Onboarding({ me, onDone }) {
           onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
           onKeyDown={(e) => e.key === "Enter" && canNext && next()}
         />
+      )}
+      {numError && (
+        <p className="q-sub" style={{ color: "var(--red, #e05c5c)" }}>
+          {numError}
+        </p>
       )}
 
       {s.type === "select" && (
@@ -303,7 +370,13 @@ export default function Onboarding({ me, onDone }) {
       )}
 
       <button className="next-btn" disabled={!canNext || saving} onClick={next}>
-        {saving ? "Сохраняем…" : step === STEPS.length - 1 ? "Начать поиск соседей →" : "Дальше"}
+        {saving
+          ? "Сохраняем…"
+          : step === STEPS.length - 1
+            ? editing
+              ? "Сохранить изменения"
+              : "Начать поиск соседей →"
+            : "Дальше"}
       </button>
     </div>
   );

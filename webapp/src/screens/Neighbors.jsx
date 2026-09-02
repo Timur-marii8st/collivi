@@ -65,7 +65,7 @@ export default function Neighbors() {
         <div className="big">🌱</div>
         Пока нет подходящих соседей.
         <br />
-        Мы уведомим тебя, когда появятся новые анкеты.
+        Загляни позже — новые анкеты появляются каждый день.
       </div>
     );
   if (idx >= cands.length)

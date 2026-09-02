@@ -1,13 +1,30 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic } from "../api";
+import { api, haptic, apiPhotoUrl } from "../api";
 
 export default function Apartments() {
   const [data, setData] = useState(undefined);
   const [marked, setMarked] = useState({});
+  const [photos, setPhotos] = useState({}); // apt_id -> objectURL
 
   useEffect(() => {
     api("/api/apartments").then(setData).catch(() => setData({ apartments: [] }));
   }, []);
+
+  // фото лежат в Telegram (file_id), приложение тянет их через серверный прокси
+  useEffect(() => {
+    const apts = data?.apartments || [];
+    if (!apts.length) return;
+    let alive = true;
+    for (const a of apts) {
+      if (!a.photo_id) continue;
+      apiPhotoUrl(`/api/apartments/${a.id}/photo`)
+        .then((url) => alive && setPhotos((p) => (p[a.id] ? p : { ...p, [a.id]: url })))
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [data]);
 
   async function interest(id) {
     haptic();
@@ -34,7 +51,7 @@ export default function Apartments() {
         <div className="big">🔍</div>
         Подходящих квартир пока нет — мы уже ищем.
         <br />
-        Пришлём уведомление, как только появится вариант.
+        Заглядывай сюда: варианты добавляются регулярно.
       </div>
     );
 
@@ -50,8 +67,8 @@ export default function Apartments() {
       {data.apartments.map((a) => (
         <div className="apt-card" key={a.id}>
           <div className="apt-photo">
-            {a.photo_url ? (
-              <img src={a.photo_url} alt="" />
+            {photos[a.id] ? (
+              <img src={photos[a.id]} alt="" />
             ) : a.rooms === 3 ? "🏙" : a.rooms === 4 ? "🏡" : "🏢"}
             <div className="price-badge">{a.price.toLocaleString("ru-RU")} ₽/мес</div>
           </div>
