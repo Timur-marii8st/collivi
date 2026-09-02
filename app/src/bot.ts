@@ -30,6 +30,14 @@ export function isAdmin(ctx: MyCtx): boolean {
   return ADMIN_IDS.includes(ctx.from?.id || 0);
 }
 
+/** вычищает токен бота из текста ошибки, чтобы он не попадал в логи */
+function safeError(e: unknown): string {
+  return String((e as any)?.message || e).replace(
+    /bot\d+:[A-Za-z0-9_-]+/g,
+    "bot***"
+  );
+}
+
 /**
  * Ответ обычному пользователю на любое сообщение: раньше бот молчал,
  * хотя в профиле написано «напиши нам в боте». Текст пересылаем админам.
@@ -430,32 +438,61 @@ bot.callbackQuery(/^apt_saved:(\d+)$/, async (ctx) => {
 });
 
 export async function startBot() {
-  bot.catch((err) => console.error("Bot error:", err));
+  bot.catch((err) => console.error("Bot error:", safeError(err)));
   await bot.init();
 
   // оформление бота: команды, описания, кнопка меню.
-  // Раньше чат с ботом был «голым»: без команд и описаний.
-  try {
-    await bot.api.setMyCommands([
-      { command: "start", description: "Как это работает" },
-      { command: "profile", description: "Моя анкета" },
-    ]);
-    await bot.api.setMyDescription(
-      "Совместная аренда в Казани: найди соседей под свой образ жизни, соберите группу и получите подборку квартир под общий бюджет."
-    );
-    await bot.api.setMyShortDescription(
-      "Поиск соседей для совместной аренды"
-    );
-    if (WEBAPP_URL)
-      await bot.api.setChatMenuButton({
-        menu_button: {
-          type: "web_app",
-          text: "Открыть",
-          web_app: { url: WEBAPP_URL },
-        },
-      });
-  } catch (e) {
-    console.error("Bot meta setup failed:", e);
+  // Каждый вызов отдельно и с ретраями: сеть через прокси нестабильна,
+  // а падение одного вызова не должно отменять остальные.
+  const setupCalls: Array<[string, () => Promise<unknown>]> = [
+    [
+      "setMyCommands",
+      () =>
+        bot.api.setMyCommands([
+          { command: "start", description: "Как это работает" },
+          { command: "profile", description: "Моя анкета" },
+        ]),
+    ],
+    [
+      "setMyDescription",
+      () =>
+        bot.api.setMyDescription(
+          "Совместная аренда в Казани: найди соседей под свой образ жизни, соберите группу и получите подборку квартир под общий бюджет."
+        ),
+    ],
+    [
+      "setMyShortDescription",
+      () =>
+        bot.api.setMyShortDescription(
+          "Поиск соседей для совместной аренды"
+        ),
+    ],
+    ...(WEBAPP_URL
+      ? [
+          [
+            "setChatMenuButton",
+            () =>
+              bot.api.setChatMenuButton({
+                menu_button: {
+                  type: "web_app",
+                  text: "Открыть",
+                  web_app: { url: WEBAPP_URL },
+                },
+              }),
+          ] as [string, () => Promise<unknown>],
+        ]
+      : []),
+  ];
+  for (const [name, fn] of setupCalls) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await fn();
+        break;
+      } catch (e) {
+        console.error(`Bot meta ${name} (attempt ${attempt}):`, safeError(e));
+        if (attempt < 3) await sleep(2000);
+      }
+    }
   }
 
   await bot.start({ onStart: () => console.log("Bot started (polling)") });
