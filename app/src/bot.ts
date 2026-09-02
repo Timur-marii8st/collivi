@@ -1,16 +1,32 @@
 ﻿import { Bot, Context, session, SessionFlavor } from "grammy";
-import { BOT_TOKEN, ADMIN_IDS, WEBAPP_URL } from "./config";
+import { limit } from "@grammyjs/ratelimiter";
+import { BOT_TOKEN, ADMIN_IDS } from "./config";
 import { pool } from "./db";
-import { openAppKeyboard } from "./notify";
+import { openAppKeyboard, esc, userLink } from "./notify";
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 interface SessionData {
   adminFlow?: string;
   aptDraft?: Record<string, any>;
+  lastAptId?: number;
+  broadcastRef?: { chatId: number; messageId: number };
 }
 type MyCtx = Context & SessionFlavor<SessionData>;
 
 export const bot = new Bot<MyCtx>(BOT_TOKEN);
 bot.use(session({ initial: (): SessionData => ({}) }));
+
+// анти-флуд: не больше ~5 апдейтов за 2 сек с одного пользователя
+bot.use(
+  limit({
+    timeFrame: 2000,
+    limit: 5,
+    onLimitExceeded: async (ctx) => {
+      await ctx.reply("Слишком часто — подожди пару секунд 🙂").catch(() => {});
+    },
+  })
+);
 
 if (!ADMIN_IDS.length) {
   bot.on("message", (ctx) =>
@@ -26,15 +42,15 @@ export function isAdmin(ctx: MyCtx): boolean {
 
 bot.command("start", async (ctx) => {
   await ctx.reply(
-    `👋 Привет, ${ctx.from?.first_name || ""}!\n\n` +
-      `Я помогаю находить *соседей под тебя* и снимать большую квартиру вместе — ` +
+    `👋 Привет, ${esc(ctx.from?.first_name || "")}!\n\n` +
+      `Я помогаю находить <b>соседей под тебя</b> и снимать большую квартиру вместе — ` +
       `отдельная комната по цене комнаты в коммуналке, но с людьми, которые совпадают с тобой по образу жизни.\n\n` +
       `1️⃣ Заполни короткую анкету (3 минуты)\n` +
       `2️⃣ Смотри карточки совместимых соседей\n` +
       `3️⃣ Соберите группу из 3–4 человек\n` +
       `4️⃣ Получите подборку квартир под ваш бюджет\n\n` +
       `Жми кнопку ниже 👇`,
-    { parse_mode: "Markdown", reply_markup: openAppKeyboard("Заполнить анкету") }
+    { parse_mode: "HTML", reply_markup: openAppKeyboard("Заполнить анкету") }
   );
 });
 
@@ -50,6 +66,79 @@ bot.command("profile", async (ctx) => {
       : "Анкета ещё не заполнена 📝",
     { reply_markup: openAppKeyboard(filled ? "Открыть профиль" : "Заполнить анкету") }
   );
+});
+
+bot.command("help", async (ctx) => {
+  await ctx.reply(
+    `<b>Свои</b> — подбор совместимых соседей и сборка группы под общую аренду.\n\n` +
+      `/start — начать, открыть приложение\n` +
+      `/profile — статус анкеты\n` +
+      `/delete_me — удалить профиль и все данные\n\n` +
+      `Вопросы и правки анкеты — просто напиши сюда.`,
+    { parse_mode: "HTML" }
+  );
+});
+
+// ---------- удаление данных ----------
+
+bot.command("delete_me", async (ctx) => {
+  await ctx.reply(
+    "Удалить твой профиль, анкету, лайки и выйти из групп? Это необратимо.",
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "🗑 Удалить всё", callback_data: "del_me_yes" },
+            { text: "Отмена", callback_data: "del_me_no" },
+          ],
+        ],
+      },
+    }
+  );
+});
+
+bot.callbackQuery("del_me_no", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Отменено" });
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+});
+
+bot.callbackQuery("del_me_yes", async (ctx) => {
+  const me = ctx.from!.id;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // группы, где я состою — если после выхода останется <2, расформировать
+    const { rows: groups } = await client.query(
+      "SELECT group_id FROM group_members WHERE tg_id=$1",
+      [me]
+    );
+    for (const g of groups) {
+      const { rows: cnt } = await client.query(
+        "SELECT COUNT(*)::int n FROM group_members WHERE group_id=$1",
+        [g.group_id]
+      );
+      if (cnt[0].n <= 2) {
+        await client.query(
+          "UPDATE users SET status='active' WHERE tg_id IN (SELECT tg_id FROM group_members WHERE group_id=$1)",
+          [g.group_id]
+        );
+        await client.query("DELETE FROM groups WHERE id=$1", [g.group_id]);
+      }
+    }
+    // остальное (likes/dislikes/group_members/apt_interest) уйдёт по ON DELETE CASCADE
+    await client.query("DELETE FROM users WHERE tg_id=$1", [me]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("delete_me failed:", e);
+    await ctx.answerCallbackQuery({ text: "Не получилось, попробуй позже" });
+    client.release();
+    return;
+  }
+  client.release();
+  await ctx.answerCallbackQuery({ text: "Удалено" });
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+  await ctx.reply("Готово — все данные удалены. Захочешь вернуться — просто напиши /start.");
 });
 
 // ---------- подтверждение группы из бота ----------
@@ -102,13 +191,13 @@ export async function checkGroupComplete(groupId: number) {
 
   for (const adminId of ADMIN_IDS) {
     const list = members
-      .map((m) => `• [${m.first_name}](tg://user?id=${m.tg_id})`)
+      .map((m) => `• ${userLink(m.tg_id, m.first_name)}`)
       .join("\n");
     await bot.api
       .sendMessage(
         adminId,
-        `✅ *Сформирована группа #${groupId}*\n${list}\nОбщий бюджет: ${totalBudget.toLocaleString("ru-RU")} ₽`,
-        { parse_mode: "Markdown" }
+        `✅ <b>Сформирована группа #${groupId}</b>\n${list}\nОбщий бюджет: ${totalBudget.toLocaleString("ru-RU")} ₽`,
+        { parse_mode: "HTML" }
       )
       .catch(() => {});
   }
@@ -153,8 +242,8 @@ bot.callbackQuery("adm_stats", async (ctx) => {
   const a = await pool.query("SELECT COUNT(*)::int n FROM apartments");
   await ctx.answerCallbackQuery();
   await ctx.reply(
-    `📊 *Статистика*\n\nАнкет заполнено: ${u.rows[0].n}\nГрупп всего: ${g.rows[0].n}\nГрупп подтверждено: ${gc.rows[0].n}\nКвартир в базе: ${a.rows[0].n}`,
-    { parse_mode: "Markdown" }
+    `📊 <b>Статистика</b>\n\nАнкет заполнено: ${u.rows[0].n}\nГрупп всего: ${g.rows[0].n}\nГрупп подтверждено: ${gc.rows[0].n}\nКвартир в базе: ${a.rows[0].n}`,
+    { parse_mode: "HTML" }
   );
 });
 
@@ -168,11 +257,11 @@ bot.callbackQuery("adm_users", async (ctx) => {
     rows
       .map(
         (r) =>
-          `👤 *${r.first_name}* ${r.age ? `(${r.age})` : ""}${r.username ? ` @${r.username}` : ""}\n` +
-          `${r.occupation || "—"} · ${r.budget ? r.budget.toLocaleString("ru-RU") + " ₽" : "—"} · ${(r.districts || []).join(", ") || "—"}`
+          `👤 <b>${esc(r.first_name)}</b> ${r.age ? `(${r.age})` : ""}${r.username ? ` @${esc(r.username)}` : ""}\n` +
+          `${esc(r.occupation || "—")} · ${r.budget ? r.budget.toLocaleString("ru-RU") + " ₽" : "—"} · ${esc((r.districts || []).join(", ") || "—")}`
       )
       .join("\n\n") || "Пока нет анкет";
-  await ctx.reply(text, { parse_mode: "Markdown" });
+  await ctx.reply(text, { parse_mode: "HTML" });
 });
 
 bot.callbackQuery("adm_apts", async (ctx) => {
@@ -184,10 +273,10 @@ bot.callbackQuery("adm_apts", async (ctx) => {
     rows
       .map(
         (a) =>
-          `🏠 *${a.title}*\n${a.rooms}-комн · ${a.district} · ${a.price.toLocaleString("ru-RU")} ₽ (~${Math.ceil(a.price / a.rooms).toLocaleString("ru-RU")} ₽/чел)\n${a.address || ""} · статус: ${a.status}`
+          `🏠 <b>${esc(a.title)}</b>\n${a.rooms}-комн · ${esc(a.district)} · ${a.price.toLocaleString("ru-RU")} ₽ (~${Math.ceil(a.price / a.rooms).toLocaleString("ru-RU")} ₽/чел)\n${esc(a.address || "")} · статус: ${esc(a.status)}`
       )
       .join("\n\n") || "Квартир пока нет";
-  await ctx.reply(text, { parse_mode: "Markdown" });
+  await ctx.reply(text, { parse_mode: "HTML" });
 });
 
 bot.callbackQuery("adm_apt_new", async (ctx) => {
@@ -261,20 +350,20 @@ bot.callbackQuery(/^apt_push:(\d+):(\d+)$/, async (ctx) => {
   ).rows;
   for (const m of members) {
     const caption =
-      `🏠 *Новая квартира под вашу группу!*\n\n` +
-      `*${apt.title}*\n${apt.rooms}-комн · ${apt.district} · ~${Math.ceil(apt.price / apt.rooms).toLocaleString("ru-RU")} ₽/чел\n` +
-      (apt.address ? `📍 ${apt.address}\n` : "") +
+      `🏠 <b>Новая квартира под вашу группу!</b>\n\n` +
+      `<b>${esc(apt.title)}</b>\n${apt.rooms}-комн · ${esc(apt.district)} · ~${Math.ceil(apt.price / apt.rooms).toLocaleString("ru-RU")} ₽/чел\n` +
+      (apt.address ? `📍 ${esc(apt.address)}\n` : "") +
       `\nОтметь «интересно» в приложении — свяжем вас с собственником.`;
     try {
       if (apt.photo_id)
         await bot.api.sendPhoto(m.tg_id, apt.photo_id, {
           caption,
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
           reply_markup: openAppKeyboard(),
         });
       else
         await bot.api.sendMessage(m.tg_id, caption, {
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
           reply_markup: openAppKeyboard(),
         });
     } catch {}
@@ -331,6 +420,7 @@ bot.on("message:text", async (ctx) => {
       );
       ctx.session.adminFlow = undefined;
       ctx.session.aptDraft = undefined;
+      ctx.session.lastAptId = rows[0].id; // сюда прикрепится следующее фото
       await ctx.reply(
         `✅ Квартира сохранена (#${rows[0].id}).\nМожно прислать фото — прикрепится к этой квартире.`,
         {
@@ -344,34 +434,75 @@ bot.on("message:text", async (ctx) => {
       break;
     }
     case "broadcast": {
-      const { rows } = await pool.query("SELECT tg_id FROM users WHERE onboarded");
-      let ok = 0;
-      for (const r of rows) {
-        try {
-          await bot.api.copyMessage(r.tg_id, ctx.chat.id, ctx.message.message_id);
-          ok++;
-        } catch {}
-      }
+      // не рассылаем сразу — сохраняем ссылку на сообщение и просим подтвердить
+      ctx.session.broadcastRef = {
+        chatId: ctx.chat.id,
+        messageId: ctx.message.message_id,
+      };
       ctx.session.adminFlow = undefined;
-      await ctx.reply(`📣 Отправлено ${ok}/${rows.length}`);
+      const { rows } = await pool.query(
+        "SELECT COUNT(*)::int n FROM users WHERE onboarded"
+      );
+      await ctx.reply(
+        `📣 Разослать это сообщение ${rows[0].n} пользователям?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "✅ Разослать", callback_data: "bcast_go" },
+                { text: "❌ Отмена", callback_data: "bcast_cancel" },
+              ],
+            ],
+          },
+        }
+      );
       break;
     }
   }
 });
 
-// фото от админа прикрепляем к последней созданной квартире
+bot.callbackQuery("bcast_cancel", async (ctx) => {
+  ctx.session.broadcastRef = undefined;
+  await ctx.answerCallbackQuery({ text: "Отменено" });
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+});
+
+bot.callbackQuery("bcast_go", async (ctx) => {
+  if (!isAdmin(ctx)) return;
+  const ref = ctx.session.broadcastRef;
+  if (!ref) {
+    await ctx.answerCallbackQuery({ text: "Нет сообщения для рассылки" });
+    return;
+  }
+  ctx.session.broadcastRef = undefined;
+  await ctx.answerCallbackQuery({ text: "Рассылаю…" });
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+
+  const { rows } = await pool.query("SELECT tg_id FROM users WHERE onboarded");
+  let ok = 0;
+  for (let i = 0; i < rows.length; i++) {
+    try {
+      await bot.api.copyMessage(rows[i].tg_id, ref.chatId, ref.messageId);
+      ok++;
+    } catch {}
+    // Telegram ограничивает ~30 сообщений/сек — держимся заметно ниже
+    if ((i + 1) % 20 === 0) await sleep(1000);
+  }
+  await ctx.reply(`📣 Отправлено ${ok}/${rows.length}`);
+});
+
+// фото от админа прикрепляем к последней сохранённой в этой сессии квартире
 bot.on("message:photo", async (ctx) => {
   if (!isAdmin(ctx)) return;
-  const pending = (
-    await pool.query("SELECT id FROM apartments ORDER BY created_at DESC LIMIT 1")
-  ).rows[0];
-  const fileId = ctx.message.photo.pop()?.file_id;
-  if (pending && fileId) {
-    await pool.query("UPDATE apartments SET photo_id=$1 WHERE id=$2", [
-      fileId,
-      pending.id,
-    ]);
-    await ctx.reply(`📷 Фото прикреплено к квартире #${pending.id}.`);
+  const aptId = ctx.session.lastAptId;
+  if (!aptId) {
+    await ctx.reply("Сначала добавь квартиру через /admin → «Добавить квартиру».");
+    return;
+  }
+  const fileId = ctx.message.photo[ctx.message.photo.length - 1]?.file_id;
+  if (fileId) {
+    await pool.query("UPDATE apartments SET photo_id=$1 WHERE id=$2", [fileId, aptId]);
+    await ctx.reply(`📷 Фото прикреплено к квартире #${aptId}.`);
   }
 });
 
@@ -380,8 +511,32 @@ bot.callbackQuery(/^apt_saved:(\d+)$/, async (ctx) => {
   await offerAptToGroups(ctx, parseInt(ctx.match[1], 10));
 });
 
+async function registerCommands() {
+  await bot.api.setMyCommands([
+    { command: "start", description: "Начать · открыть приложение" },
+    { command: "profile", description: "Статус анкеты" },
+    { command: "help", description: "Помощь" },
+    { command: "delete_me", description: "Удалить профиль и данные" },
+  ]);
+  for (const adminId of ADMIN_IDS) {
+    await bot.api
+      .setMyCommands(
+        [
+          { command: "start", description: "Начать · открыть приложение" },
+          { command: "profile", description: "Статус анкеты" },
+          { command: "help", description: "Помощь" },
+          { command: "delete_me", description: "Удалить профиль и данные" },
+          { command: "admin", description: "Админ-панель" },
+        ],
+        { scope: { type: "chat", chat_id: adminId } }
+      )
+      .catch(() => {});
+  }
+}
+
 export async function startBot() {
   bot.catch((err) => console.error("Bot error:", err));
   await bot.init();
+  await registerCommands().catch((e) => console.error("setMyCommands failed:", e));
   await bot.start({ onStart: () => console.log("Bot started (polling)") });
 }
