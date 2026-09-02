@@ -1,0 +1,11 @@
+{
+  "name": "collivi-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs && node boot.mjs && node authed.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.2.0"
+  }
+}
