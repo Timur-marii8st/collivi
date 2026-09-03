@@ -63,6 +63,10 @@ async function main() {
   await app.listen({ port: PORT, host: "0.0.0.0" });
   console.log(`API + webapp on :${PORT}`);
 
+  if (process.env.DISABLE_BOT === "1") {
+    console.warn("DISABLE_BOT=1 — бот не запускается, только API + webapp");
+    return;
+  }
   startBot().catch((e) => {
     console.error("Bot failed:", e);
     process.exit(1);

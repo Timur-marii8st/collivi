@@ -12,10 +12,10 @@ process.env.DATABASE_URL ||= "postgres://x/x";
 export const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const req = createRequire(join(REPO, "app/"));
 
-export async function bootApp() {
+export async function bootApp({ persist } = {}) {
   const Fastify = (await import(join(REPO, "app/node_modules/fastify/fastify.js"))).default;
 
-  const pg = new PGlite();
+  const pg = persist ? new PGlite(join(REPO, "test/.pgdata")) : new PGlite();
   await pg.exec(readFileSync(join(REPO, "app/src/schema.sql"), "utf8"));
 
   const dbMod = req(join(REPO, "app/dist/db.js"));

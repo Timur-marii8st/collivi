@@ -16,6 +16,9 @@ export function haptic(type = "light") {
 }
 
 export function initData() {
+  // vite dev: VITE_DEV_INITDATA позволяет тестировать мини-апп вне Telegram
+  // (см. test/sign.mjs). В прод-сборке import.meta.env.DEV === false.
+  if (import.meta.env.DEV && !tg?.initData) return import.meta.env.VITE_DEV_INITDATA || "";
   return tg?.initData || "";
 }
 
