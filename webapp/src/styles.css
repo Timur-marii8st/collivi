@@ -158,6 +158,7 @@ input[type="range"] { width: 100%; accent-color: var(--btn); height: 36px; }
 .tab.active { color: var(--btn); }
 
 .icon { display: block; flex-shrink: 0; }
+.sub-ok { display: inline-block; vertical-align: -2px; margin-left: 5px; color: var(--btn); }
 .icon.big { width: 46px; height: 46px; stroke-width: 1.5; color: var(--btn); margin-bottom: 14px; }
 .icon-spin { animation: icon-spin 1s linear infinite; }
 @keyframes icon-spin { to { transform: rotate(360deg); } }

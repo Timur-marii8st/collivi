@@ -47,13 +47,11 @@ export function confirmUser(message) {
 }
 
 export async function api(path, options = {}) {
+  const headers = { "x-init-data": initData(), ...(options.headers || {}) };
+  if (options.body) headers["Content-Type"] = "application/json";
   const res = await fetch(path, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "x-init-data": initData(),
-      ...(options.headers || {}),
-    },
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (!res.ok) {

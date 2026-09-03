@@ -1,4 +1,5 @@
 import React from "react";
+import Icon from "../Icon";
 
 const SLEEP = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
 const GUESTS = { never: "без гостей", sometimes: "гости иногда", often: "гости свободно" };
@@ -34,7 +35,10 @@ export default function Profile({ me }) {
           <div className="avatar">{(me.first_name?.[0] || "?").toUpperCase()}</div>
           <div>
             <div className="card-name">{me.first_name}</div>
-            <div className="card-sub">@{me.username || "—"} · анкета активна ✅</div>
+            <div className="card-sub">
+              @{me.username || "—"} · анкета активна
+              <Icon name="check" size={14} className="sub-ok" />
+            </div>
           </div>
         </div>
       </div>

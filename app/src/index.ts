@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -9,19 +9,28 @@ import { registerApi } from "./api";
 import { startBot } from "./bot";
 import { PORT, WEBAPP_URL, NODE_ENV, assertConfig } from "./config";
 
-async function main() {
-  assertConfig();
-
-  await initDb();
-  console.log("DB ready");
-
-  const app = Fastify({
-    trustProxy: true, // за Caddy — иначе rate-limit ключуется по IP прокси
-    logger: {
-      level: NODE_ENV === "production" ? "info" : "warn",
-      redact: ['req.headers["x-init-data"]', "req.headers.authorization"],
-    },
-  });
+/**
+ * Плагины и парсеры, общие для прода и локального дев-сервера (test/_harness.mjs
+ * подключает эту же функцию, чтобы не расходиться с продом). Статику и 404
+ * добавляет только main().
+ */
+export async function configureApp(app: FastifyInstance) {
+  // POST без тела (confirm / leave) не должен падать из-за
+  // Content-Type: application/json — пустое тело трактуем как {}.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_req, body, done) => {
+      const s = (body as string).trim();
+      if (!s) return done(null, {});
+      try {
+        done(null, JSON.parse(s));
+      } catch (err) {
+        (err as any).statusCode = 400;
+        done(err as Error, undefined);
+      }
+    }
+  );
 
   await app.register(helmet, {
     contentSecurityPolicy: {
@@ -50,12 +59,28 @@ async function main() {
     timeWindow: "1 minute",
     allowList: (req) => req.url === "/api/health",
   });
+}
+
+async function main() {
+  assertConfig();
+
+  await initDb();
+  console.log("DB ready");
+
+  const app = Fastify({
+    trustProxy: true, // за Caddy — иначе rate-limit ключуется по IP прокси
+    logger: {
+      level: NODE_ENV === "production" ? "info" : "warn",
+      redact: ['req.headers["x-init-data"]', "req.headers.authorization"],
+    },
+  });
+
+  await configureApp(app);
 
   await app.register(fastifyStatic, {
     root: join(__dirname, "..", "public"),
     prefix: "/",
   });
-
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: "not_found" }));
 
   registerApi(app);
@@ -73,4 +98,4 @@ async function main() {
   });
 }
 
-main();
+if (require.main === module) main();
