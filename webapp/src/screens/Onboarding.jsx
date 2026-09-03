@@ -81,9 +81,9 @@ const STEPS = [
   {
     key: "occupation",
     title: "Где учишься / работаешь?",
-    sub: "Выбери из списка — так легче найти однокурсников",
-    type: "select",
-    placeholder: "Выбери вариант…",
+    sub: "Выбери вуз из списка и/или отметь, что работаешь",
+    type: "occupation",
+    placeholder: "Учебное заведение",
     options: [
       ["КФУ", "КФУ — Казанский федеральный университет"],
       ["КНИТУ (КХТИ)", "КНИТУ — КХТИ"],
@@ -97,7 +97,6 @@ const STEPS = [
       ["ККИ РУК", "ККИ РУК"],
       ["УВО «Университет управления «ТИСБИ»»", "Университет управления «ТИСБИ»"],
       ["КФ РЭУ им. Плеханова", "РЭУ им. Плеханова (КФ)"],
-      ["Работаю", "Работаю"],
       ["Другое", "Другое"],
     ],
   },
@@ -170,6 +169,7 @@ const BASE = {
   pets_has: false,
   interests: [],
   priorities: [],
+  works: false,
   sleep_time: 24,
   cleanliness: 5,
   birth: { d: "", m: "", y: "" },
@@ -218,9 +218,11 @@ export default function Onboarding({ me, onDone }) {
         ? budgetOk
         : s.type === "count"
           ? !countState.loading
-          : s.type === "text" || s.type === "select"
-            ? String(val ?? "").trim().length > 0
-            : s.type === "priorities"
+          : s.type === "occupation"
+            ? !!data.occupation || !!data.works
+            : s.type === "text"
+              ? String(val ?? "").trim().length > 0
+              : s.type === "priorities"
               ? Array.isArray(val) && val.length >= 2
               : Array.isArray(val)
                 ? val.length > 0
@@ -351,7 +353,10 @@ export default function Onboarding({ me, onDone }) {
         birthdate: dobISO(data.birth),
         gender: data.gender,
         prefer_gender: data.prefer_gender,
-        occupation: data.occupation,
+        occupation:
+          data.occupation && data.works
+            ? `${data.occupation} · работаю`
+            : data.occupation || (data.works ? "Работаю" : ""),
         budget_min: +data.budget.min,
         budget_max: +data.budget.max,
         districts: data.districts,
@@ -496,18 +501,28 @@ export default function Onboarding({ me, onDone }) {
         />
       )}
 
-      {s.type === "select" && (
-        <select
-          className="dob-select"
-          data-empty={!val}
-          value={val ?? ""}
-          onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
-        >
-          <option value="" disabled>{s.placeholder}</option>
-          {s.options.map(([v, label]) => (
-            <option key={v} value={v}>{label}</option>
-          ))}
-        </select>
+      {s.type === "occupation" && (
+        <div className="occ">
+          <select
+            className="dob-select"
+            data-empty={!data.occupation}
+            value={data.occupation ?? ""}
+            onChange={(e) => setData({ ...data, occupation: e.target.value })}
+          >
+            <option value="">{s.placeholder}</option>
+            {s.options.map(([v, label]) => (
+              <option key={v} value={v}>{label}</option>
+            ))}
+          </select>
+          <label className="occ-check">
+            <input
+              type="checkbox"
+              checked={!!data.works}
+              onChange={(e) => setData({ ...data, works: e.target.checked })}
+            />
+            <span>Работаю</span>
+          </label>
+        </div>
       )}
 
       {(s.type === "chips" || s.type === "multichips") && (

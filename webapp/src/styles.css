@@ -58,8 +58,12 @@ body {
 .q-err { color: #d64545; font-size: 13px; margin-top: 10px; }
 
 /* одинаковый отступ от заголовка/подзаголовка до любого контрола */
-.chips, .input, .dob-row, .budget-row, .slider-wrap, .count-card, .dob-select { margin-top: 20px; }
-.budget-row .input, .dob-col .input, .dob-col .dob-select { margin-top: 0; }
+.chips, .input, .dob-row, .budget-row, .slider-wrap, .count-card, .dob-select, .occ { margin-top: 20px; }
+.budget-row .input, .dob-col .input, .dob-col .dob-select, .occ .dob-select { margin-top: 0; }
+
+.occ { display: flex; flex-direction: column; gap: 14px; }
+.occ-check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 15px; }
+.occ-check input { width: 20px; height: 20px; accent-color: var(--btn); flex-shrink: 0; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 10px; }
 .chip {

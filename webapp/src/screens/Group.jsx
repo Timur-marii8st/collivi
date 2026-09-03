@@ -115,7 +115,7 @@ export default function GroupScreen() {
         )}
         {group.status === "confirmed" && (
           <div style={{ textAlign: "center", marginTop: 18 }}>
-            <p style={{ color: "var(--btn)", fontWeight: 600 }}>Группа собрана 🎉</p>
+            <p style={{ color: "var(--btn)", fontWeight: 600 }}>Группа собрана</p>
             <p style={{ color: "var(--hint)", fontSize: 13.5, marginTop: 4 }}>
               Смотри вкладку «Квартиры»
             </p>

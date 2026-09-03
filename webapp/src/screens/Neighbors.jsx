@@ -27,14 +27,14 @@ function ScoreRing({ score }) {
 function tagsOf(c) {
   const t = [];
   if (c.budget_min != null && c.budget_max != null)
-    t.push(`💰 ${c.budget_min.toLocaleString("ru-RU")}–${c.budget_max.toLocaleString("ru-RU")} ₽`);
-  else if (c.budget) t.push(`💰 до ${c.budget.toLocaleString("ru-RU")} ₽`);
-  if (c.smoking === "no") t.push("🚭 не курит");
-  if (c.sleep_time != null) t.push(`🌙 ложится в ${SLEEP(c.sleep_time)}`);
-  if (c.cleanliness >= 7) t.push(`🧹 чистота ${c.cleanliness}/10`);
-  if (c.guests === "sometimes") t.push("🚪 гости иногда");
-  if (c.parties === "no") t.push("🔇 без вечеринок");
-  (c.interests || []).slice(0, 4).forEach((i) => t.push(`✦ ${i}`));
+    t.push(`${c.budget_min.toLocaleString("ru-RU")}–${c.budget_max.toLocaleString("ru-RU")} ₽`);
+  else if (c.budget) t.push(`до ${c.budget.toLocaleString("ru-RU")} ₽`);
+  if (c.smoking === "no") t.push("не курит");
+  if (c.sleep_time != null) t.push(`ложится в ${SLEEP(c.sleep_time)}`);
+  if (c.cleanliness >= 7) t.push(`чистота ${c.cleanliness}/10`);
+  if (c.guests === "sometimes") t.push("гости иногда");
+  if (c.parties === "no") t.push("без вечеринок");
+  (c.interests || []).slice(0, 4).forEach((i) => t.push(i));
   return t;
 }
 
@@ -99,7 +99,7 @@ export default function Neighbors() {
           <ScoreRing score={c.score} />
         </div>
 
-        {c.reasons[0] && <div className="reason">✨ {c.reasons[0]}</div>}
+        {c.reasons[0] && <div className="reason">{c.reasons[0]}</div>}
 
         <div className="tags">
           {tagsOf(c).map((t) => (
@@ -109,7 +109,7 @@ export default function Neighbors() {
 
         <div className="actions">
           <button className="act-btn act-no" onClick={() => decide(false)}>Не то</button>
-          <button className="act-btn act-yes" onClick={() => decide(true)}>Хочу жить 👋</button>
+          <button className="act-btn act-yes" onClick={() => decide(true)}>Хочу жить</button>
         </div>
       </div>
       <p style={{ textAlign: "center", color: "var(--hint)", fontSize: 12.5, marginTop: 14 }}>
