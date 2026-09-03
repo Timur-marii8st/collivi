@@ -26,7 +26,19 @@ if (process.env.SKIP_BUILD !== "1") {
 }
 
 const { bootApp } = await import("./_harness.mjs");
-const { app } = await bootApp({ persist: true });
+const { app, pg } = await bootApp({ persist: true });
+
+// пара тестовых квартир, чтобы вкладка «Квартиры» не была пустой
+// (на проде их добавляет админ через бота)
+const { rows } = await pg.query("SELECT COUNT(*)::int c FROM apartments");
+if (rows[0].c === 0) {
+  // недорогие и в разных популярных районах — чтобы попадали под типовую тест-группу
+  await pg.query(`INSERT INTO apartments (title, rooms, price, district, address, isolated_rooms, contact, status) VALUES
+    ('Трёшка у Кабана', 3, 33000, 'Приволжский', 'ул. Гагарина, 10', true, '+7 999 000-00-01', 'available'),
+    ('Двушка на Спартаковской', 2, 22000, 'Вахитовский', 'ул. Спартаковская, 5', true, '+7 999 000-00-02', 'available'),
+    ('Трёшка в Ново-Савиновском', 3, 30000, 'Ново-Савиновский', 'пр. Ямашева, 40', true, '+7 999 000-00-03', 'available')`);
+  console.log("добавлены тестовые квартиры (3)");
+}
 
 await app.listen({ port: PORT, host: "127.0.0.1" });
 console.log(`dev API (pglite) → http://localhost:${PORT}`);

@@ -44,6 +44,18 @@ for (const [name, over] of [
   r.statusCode === 400 ? ok(`${name} -> 400 (${r.json().error})`) : bad(`${name} -> ${r.statusCode}`);
 }
 
+console.log("== POST без тела, но с Content-Type: application/json (как шлёт мини-апп) ==");
+{
+  const r = await app.inject({
+    method: "POST", url: "/api/group/confirm",
+    headers: { "x-init-data": hA, "content-type": "application/json" },
+  });
+  // важно: НЕ FST_ERR_CTP_EMPTY_JSON_BODY (это был баг). Ждём 404 «нет форм. группы».
+  r.statusCode === 404 && !r.body.includes("EMPTY_JSON_BODY")
+    ? ok(`пустое тело обрабатывается (${r.statusCode})`)
+    : bad(`-> ${r.statusCode} ${r.body}`);
+}
+
 console.log("== заполняем B, C, D ==");
 {
   const rb = await call(hB, "POST", "/api/me", profile({ budget_min: 13000, budget_max: 17000 }));

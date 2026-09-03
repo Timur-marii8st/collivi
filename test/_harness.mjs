@@ -40,24 +40,11 @@ export async function bootApp({ persist, botFails } = {}) {
   );
 
   const { registerApi } = req(join(REPO, "app/dist/api.js"));
-  const helmet = req("@fastify/helmet");
-  const rateLimit = req("@fastify/rate-limit");
-  const cors = req("@fastify/cors");
+  // те же плагины/парсеры, что и на проде — из app/dist/index.js, без дублирования
+  const { configureApp } = req(join(REPO, "app/dist/index.js"));
 
   const app = Fastify({ trustProxy: true, logger: false });
-  await app.register(helmet, {
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"], scriptSrc: ["'self'", "https://telegram.org"],
-        styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'"], frameAncestors: ["'self'", "https://web.telegram.org", "https://*.telegram.org"],
-        baseUri: ["'self'"], objectSrc: ["'none'"],
-      },
-    },
-    crossOriginEmbedderPolicy: false,
-  });
-  await app.register(cors, { origin: false, methods: ["GET", "POST"] });
-  await app.register(rateLimit, { global: true, max: 120, timeWindow: "1 minute", allowList: (r) => r.url === "/api/health" });
+  await configureApp(app);
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: "not_found" }));
   registerApi(app);
   await app.ready();
