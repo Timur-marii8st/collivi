@@ -32,16 +32,30 @@ docs/PROJECT.md — продукт: концепция, мэтчинг, юнит
 
 ## Запуск
 
+### Продакшн (Docker)
+
 ```bash
-cp .env.example .env   # вписать BOT_TOKEN, ADMIN_IDS, WEBAPP_URL
+cp .env.example .env   # BOT_TOKEN, ADMIN_IDS, WEBAPP_URL, POSTGRES_*
 docker compose up -d --build
 ```
 
-Локально в dev:
+### Локально для разработки (нужен свой Postgres)
 
 ```bash
-cd app && npm i && npx tsc && node dist/index.js     # API на :3000
-cd webapp && npm i && npm run dev                    # Vite с прокси /api → :3000
+cd app && npm i && npm run build && node dist/index.js   # API на :3000
+cd webapp && npm i && npm run dev                        # Vite, /api → :3000
+```
+
+### Посмотреть мини-апп без Docker и без Telegram
+
+Встроенный Postgres (WASM), самоподписанный `initData`, тестовые соседи — запуск в
+несколько команд. Полная пошаговая инструкция: **[`test/README.md`](test/README.md)**.
+
+```bash
+npm --prefix app install && npm --prefix webapp install && npm --prefix test install
+node test/dev-server.mjs                                             # терминал 1: API :3000
+cd webapp && VITE_DEV_INITDATA="$(node ../test/sign.mjs 111 Аня)" npm run dev   # терминал 2
+# открыть http://localhost:5173
 ```
 
 ## Админка бота
