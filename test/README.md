@@ -29,10 +29,10 @@ npm --prefix test test
 `import.meta.env.DEV === false`). База — тот же встроенный Postgres, что и в тестах.
 
 ```bash
-npm --prefix app run build
 npm --prefix test install
 
-# терминал 1 — API на :3000 (встроенный Postgres, без бота)
+# терминал 1 — API на :3000 (встроенный Postgres, без бота).
+# Сам пересобирает app/dist при старте — после правок бэкенда просто перезапусти.
 node test/dev-server.mjs
 
 # терминал 2 — мини-апп с самоподписанным initData
@@ -40,6 +40,9 @@ cd webapp
 VITE_DEV_INITDATA="$(node ../test/sign.mjs 111 Аня @ann)" npm run dev
 # открыть http://localhost:5173 — форма сохранится, все экраны авторизованы
 ```
+
+**Важно:** дев-сервер загружает код бэкенда один раз при старте. Поменяла что-то в
+`app/src` — **перезапусти `node test/dev-server.mjs`** (он сам пересоберёт).
 
 ### Соседи для проверки подбора / мэтча / групп
 
@@ -57,7 +60,17 @@ node test/seed.mjs          # запусти ещё раз — теперь он
 `node test/sign.mjs [id] [Имя] [@username]` печатает строку initData —
 её же можно класть в заголовок `x-init-data` для curl/Postman.
 
-Данные дев-сервера лежат в `test/.pgdata`. Сброс всего: `rm -rf test/.pgdata`.
+### Сбросить профили и начать заново
+
+Данные в `test/.pgdata`. Перезапусти дев-сервер с чистой базой:
+
+```bash
+# Ctrl+C в терминале дев-сервера, затем:
+FRESH=1 node test/dev-server.mjs
+```
+
+В браузере — жёсткое обновление (Cmd+Shift+R). Если осталась половина анкеты —
+в консоли DevTools: `localStorage.clear()`.
 
 Если всё-таки хочешь второго «живого» пользователя в отдельном окне:
 

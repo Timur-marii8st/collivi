@@ -6,9 +6,11 @@ const { app, pg } = await bootApp();
 const A = { id: 111, first_name: "Аня", username: "ann" };
 const B = { id: 222, first_name: "Марк", username: "mark" };
 const C = { id: 333, first_name: "Лена" };
+const D = { id: 444, first_name: "Дима" };
 const hA = await signInitData(A);
 const hB = await signInitData(B);
 const hC = await signInitData(C);
+const hD = await signInitData(D);
 
 let fail = 0;
 const ok = (m) => console.log("  ok   " + m);
@@ -42,11 +44,13 @@ for (const [name, over] of [
   r.statusCode === 400 ? ok(`${name} -> 400 (${r.json().error})`) : bad(`${name} -> ${r.statusCode}`);
 }
 
-console.log("== заполняем B и C ==");
+console.log("== заполняем B, C, D ==");
 {
   const rb = await call(hB, "POST", "/api/me", profile({ budget_min: 13000, budget_max: 17000 }));
   const rc = await call(hC, "POST", "/api/me", profile({ budget_min: 40000, budget_max: 50000, districts: ["Кировский"] }));
-  rb.statusCode === 200 && rc.statusCode === 200 ? ok("B и C сохранены") : bad(`B ${rb.statusCode} / C ${rc.statusCode}`);
+  const rd = await call(hD, "POST", "/api/me", profile({ birthdate: "1999-06-01", budget_min: 12000, budget_max: 18000 }));
+  rb.statusCode === 200 && rc.statusCode === 200 && rd.statusCode === 200
+    ? ok("B, C, D сохранены") : bad(`B ${rb.statusCode} / C ${rc.statusCode} / D ${rd.statusCode}`);
 }
 
 console.log("== POST /api/candidates/preview ==");
@@ -55,16 +59,17 @@ console.log("== POST /api/candidates/preview ==");
     birthdate: "2000-05-10", gender: "m", prefer_gender: "any",
     budget_min: 12000, budget_max: 18000, districts: ["Приволжский"], move_in: "month", lease_months: 12,
   });
-  r.json().count === 1 ? ok("count = 1 (себя исключили, B подходит, C по бюджету — нет)") : bad(`count = ${r.json().count}`);
+  r.json().count === 2 ? ok("count = 2 (себя исключили, B и D подходят, C по бюджету — нет)") : bad(`count = ${r.json().count}`);
 }
 
-console.log("== GET /api/candidates: B, не C, с public_id ==");
+console.log("== GET /api/candidates: B и D, не C, с public_id ==");
 {
   const cs = (await call(hA, "GET", "/api/candidates")).json().candidates;
-  cs.length === 1 && cs[0].first_name === "Марк" && typeof cs[0].id === "string" && !("tg_id" in cs[0])
-    ? ok(`кандидаты: [Марк] id=uuid score=${cs[0].score}`)
+  const names = cs.map((x) => x.first_name).sort();
+  cs.length === 2 && names.join() === "Дима,Марк" && typeof cs[0].id === "string" && !("tg_id" in cs[0])
+    ? ok(`кандидаты: [${names}] id=uuid score=${cs[0].score}`)
     : bad("candidates: " + JSON.stringify(cs));
-  globalThis.__B = cs[0]?.id;
+  globalThis.__B = cs.find((x) => x.first_name === "Марк")?.id;
 }
 
 console.log("== POST /api/like: чужой / сам себя -> отказ ==");
@@ -77,24 +82,27 @@ console.log("== POST /api/like: чужой / сам себя -> отказ ==");
     : bad(`-> ${r1.statusCode} / ${r2.statusCode}`);
 }
 
-console.log("== взаимный лайк A<->B -> mutual + /api/connections ==");
+console.log("== взаимные лайки A<->B и A<->D + /api/connections ==");
 {
-  await call(hA, "POST", "/api/like", { to: globalThis.__B, like: true });
   const aId = (await pg.query("SELECT public_id FROM users WHERE tg_id=111")).rows[0].public_id;
+  globalThis.__D = (await pg.query("SELECT public_id FROM users WHERE tg_id=444")).rows[0].public_id;
+  await call(hA, "POST", "/api/like", { to: globalThis.__B, like: true });
   const r2 = await call(hB, "POST", "/api/like", { to: aId, like: true });
+  await call(hA, "POST", "/api/like", { to: globalThis.__D, like: true });
+  await call(hD, "POST", "/api/like", { to: aId, like: true });
   const list = (await call(hA, "GET", "/api/connections")).json().connections;
-  r2.json().mutual === true && list.length === 1 && list[0].first_name === "Марк"
-    ? ok(`mutual=true, connections=[Марк], id=${typeof list[0].id}`)
+  r2.json().mutual === true && list.length === 2
+    ? ok(`mutual=true, connections=${list.length}, id=${typeof list[0].id}`)
     : bad(`mutual ${JSON.stringify(r2.json())} / conn ${JSON.stringify(list)}`);
 }
 
 console.log("== POST /api/group/create: дубли убираются, транзакция ==");
 {
-  const r = await call(hA, "POST", "/api/group/create", { members: [globalThis.__B, globalThis.__B] });
+  const r = await call(hA, "POST", "/api/group/create", { members: [globalThis.__B, globalThis.__B, globalThis.__D] });
   const gid = r.json().groupId;
   const m = (await pg.query("SELECT tg_id, ready FROM group_members WHERE group_id=$1 ORDER BY tg_id", [gid])).rows;
-  m.length === 2 && m.some((x) => String(x.tg_id) === "111" && x.ready === true)
-    ? ok(`группа #${gid}: участников 2 (дубль убран), создатель ready`)
+  m.length === 3 && m.some((x) => String(x.tg_id) === "111" && x.ready === true)
+    ? ok(`группа #${gid}: участников 3 (дубль B убран), создатель ready`)
     : bad("members: " + JSON.stringify(m));
   globalThis.__gid = gid;
 }
@@ -106,6 +114,15 @@ console.log("== GET /api/group: ready = ready вызывающего, member.id 
   ga.ready === true && gb.ready === false && typeof ga.members[0].id === "string" && !("tg_id" in ga.members[0])
     ? ok(`A.ready=true, B.ready=false, member.id=public_id`)
     : bad(`A ${JSON.stringify(ga)} / B ${JSON.stringify(gb)}`);
+}
+
+console.log("== POST /api/group/leave (D, группа из 3) -> остаётся 2, не распад ==");
+{
+  const r = await call(hD, "POST", "/api/group/leave", {});
+  const m = (await pg.query("SELECT COUNT(*)::int c FROM group_members WHERE group_id=$1", [globalThis.__gid])).rows[0].c;
+  r.statusCode === 200 && r.json().disbanded === false && m === 2
+    ? ok(`leave ok, участников осталось ${m}`)
+    : bad(`-> ${r.statusCode} ${r.body}, members=${m}`);
 }
 
 console.log("== POST /api/group/confirm (B) -> статус confirmed ==");
