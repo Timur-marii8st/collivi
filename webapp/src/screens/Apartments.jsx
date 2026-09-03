@@ -23,9 +23,8 @@ export default function Apartments() {
     return (
       <div className="empty">
         <Icon name="home" className="big" />
-        Квартиры появляются после того, как вы соберёте группу.
-        <br /><br />
-        Так мы подбираем варианты точно под ваш общий бюджет.
+        <p className="empty-title">Сначала соберите группу</p>
+        <p className="empty-text">Квартиры подбираем под общий бюджет группы</p>
       </div>
     );
 
@@ -33,9 +32,8 @@ export default function Apartments() {
     return (
       <div className="empty">
         <Icon name="search" className="big" />
-        Подходящих квартир пока нет — мы уже ищем.
-        <br />
-        Пришлём уведомление, как только появится вариант.
+        <p className="empty-title">Пока ищем варианты</p>
+        <p className="empty-text">Пришлём уведомление, как только появится подходящая квартира</p>
       </div>
     );
 

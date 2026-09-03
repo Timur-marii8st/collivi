@@ -140,9 +140,8 @@ export default function GroupScreen() {
       {!conns.length ? (
         <div className="empty">
           <Icon name="group" className="big" />
-          Взаимных лайков пока нет.
-          <br />
-          Лайкай соседей во вкладке «Соседи» — при взаимном интересе вы сможете собрать группу.
+          <p className="empty-title">Взаимных лайков пока нет</p>
+          <p className="empty-text">Лайкай соседей во вкладке «Соседи» — при взаимном интересе сможете собрать группу</p>
         </div>
       ) : (
         <>

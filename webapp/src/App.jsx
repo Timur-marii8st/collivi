@@ -30,7 +30,7 @@ export default function App() {
     return (
       <div className="empty">
         <Icon name="loader" className="big" />
-        Открываем…
+        <p className="empty-text">Открываем…</p>
       </div>
     );
 

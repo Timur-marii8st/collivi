@@ -61,23 +61,27 @@ export default function Neighbors() {
     }, 180);
   }
 
-  if (!cands) return <div className="empty"><Icon name="loader" className="big" />Ищем…</div>;
+  if (!cands)
+    return (
+      <div className="empty">
+        <Icon name="loader" className="big" />
+        <p className="empty-text">Ищем соседей…</p>
+      </div>
+    );
   if (!cands.length)
     return (
       <div className="empty">
         <Icon name="sprout" className="big" />
-        Пока нет подходящих соседей.
-        <br />
-        Мы уведомим тебя, когда появятся новые анкеты.
+        <p className="empty-title">Пока нет подходящих соседей</p>
+        <p className="empty-text">Уведомим, когда появятся новые анкеты</p>
       </div>
     );
   if (idx >= cands.length)
     return (
       <div className="empty">
         <Icon name="check" className="big" />
-        Это все анкеты на сегодня!
-        <br />
-        Загляни позже — новые соседи уже в пути.
+        <p className="empty-title">Это все анкеты на сегодня</p>
+        <p className="empty-text">Загляни позже — новые соседи уже в пути</p>
       </div>
     );
 

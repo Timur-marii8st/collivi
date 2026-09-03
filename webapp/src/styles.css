@@ -159,7 +159,7 @@ input[type="range"] { width: 100%; accent-color: var(--btn); height: 36px; }
 
 .icon { display: block; flex-shrink: 0; }
 .sub-ok { display: inline-block; vertical-align: -2px; margin-left: 5px; color: var(--btn); }
-.icon.big { width: 46px; height: 46px; stroke-width: 1.5; color: var(--btn); margin-bottom: 14px; }
+.icon.big { width: 44px; height: 44px; stroke-width: 1.5; color: var(--btn); }
 .icon-spin { animation: icon-spin 1s linear infinite; }
 @keyframes icon-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .icon-spin { animation: none; } }
@@ -211,8 +211,39 @@ input[type="range"] { width: 100%; accent-color: var(--btn); height: 36px; }
 .act-no { background: var(--sec-bg); color: var(--hint); }
 .act-yes { background: var(--btn); color: var(--btn-text); font-weight: 600; }
 
-.empty { text-align: center; color: var(--hint); padding: 70px 30px; }
-.empty .big { font-size: 44px; margin-bottom: 14px; }
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 72px 24px;
+  color: var(--hint);
+}
+.empty .icon.big {
+  width: 76px;
+  height: 76px;
+  padding: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--btn) 10%, var(--bg));
+  color: var(--btn);
+  stroke-width: 1.6;
+  margin-bottom: 18px;
+}
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+  text-wrap: balance;
+  max-width: 24ch;
+}
+.empty-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-wrap: pretty;
+  max-width: 30ch;
+}
 
 /* ---------- группа ---------- */
 .member-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(128,128,128,.1); }
