@@ -473,7 +473,8 @@ export function registerApi(app: FastifyInstance) {
     );
     if (!rows.length)
       return reply.code(404).send({ error: "нет формирующейся группы" });
-    await checkGroupComplete(rows[0].group_id);
+    // ready уже сохранён; сбор группы + уведомления не должны валить запрос
+    await checkGroupComplete(rows[0].group_id).catch((e) => req.log.error(e));
     return { ok: true };
   });
 

@@ -12,7 +12,7 @@ process.env.DATABASE_URL ||= "postgres://x/x";
 export const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const req = createRequire(join(REPO, "app/"));
 
-export async function bootApp({ persist } = {}) {
+export async function bootApp({ persist, botFails } = {}) {
   const Fastify = (await import(join(REPO, "app/node_modules/fastify/fastify.js"))).default;
 
   const pg = persist ? new PGlite(join(REPO, "test/.pgdata")) : new PGlite();
@@ -32,7 +32,12 @@ export async function bootApp({ persist } = {}) {
   });
 
   const botMod = req(join(REPO, "app/dist/bot.js"));
-  botMod.bot.api.config.use(() => Promise.resolve({ ok: true, result: {} })); // без реальных вызовов Telegram
+  // без реальных вызовов Telegram; botFails => бот падает на любой вызов
+  botMod.bot.api.config.use(() =>
+    botFails
+      ? Promise.reject(new Error("Forbidden: bot was blocked by the user"))
+      : Promise.resolve({ ok: true, result: {} })
+  );
 
   const { registerApi } = req(join(REPO, "app/dist/api.js"));
   const helmet = req("@fastify/helmet");

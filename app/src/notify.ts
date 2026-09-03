@@ -84,12 +84,14 @@ export async function notifyGroupConfirmed(
       .filter((x) => x.tg_id !== m.tg_id)
       .map((x) => esc(x.first_name))
       .join(", ");
-    await bot.api.sendMessage(
-      m.tg_id,
-      `🎉 Группа собрана!\n\nСостав: ${others}\nОбщий бюджет: <b>${totalBudget.toLocaleString(
-        "ru-RU"
-      )} ₽/мес</b>\n\nТеперь смотри подходящие квартиры во вкладке «Квартиры».`,
-      { parse_mode: "HTML", reply_markup: openAppKeyboard() }
-    );
+    await bot.api
+      .sendMessage(
+        m.tg_id,
+        `🎉 Группа собрана!\n\nСостав: ${others}\nОбщий бюджет: <b>${totalBudget.toLocaleString(
+          "ru-RU"
+        )} ₽/мес</b>\n\nТеперь смотри подходящие квартиры во вкладке «Квартиры».`,
+        { parse_mode: "HTML", reply_markup: openAppKeyboard() }
+      )
+      .catch(() => {});
   }
 }

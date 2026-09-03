@@ -186,20 +186,25 @@ export async function checkGroupComplete(groupId: number) {
   const members = rows.map((r) => ({ tg_id: String(r.tg_id), first_name: r.first_name }));
   const totalBudget = rows.reduce((s, r) => s + (r.budget || 0), 0);
 
-  const { notifyGroupConfirmed } = await import("./notify");
-  await notifyGroupConfirmed(bot, members, totalBudget);
+  // уведомления — best-effort: группа уже собрана в БД, ошибка доставки не должна её ронять
+  try {
+    const { notifyGroupConfirmed } = await import("./notify");
+    await notifyGroupConfirmed(bot, members, totalBudget);
 
-  for (const adminId of ADMIN_IDS) {
-    const list = members
-      .map((m) => `• ${userLink(m.tg_id, m.first_name)}`)
-      .join("\n");
-    await bot.api
-      .sendMessage(
-        adminId,
-        `✅ <b>Сформирована группа #${groupId}</b>\n${list}\nОбщий бюджет: ${totalBudget.toLocaleString("ru-RU")} ₽`,
-        { parse_mode: "HTML" }
-      )
-      .catch(() => {});
+    for (const adminId of ADMIN_IDS) {
+      const list = members
+        .map((m) => `• ${userLink(m.tg_id, m.first_name)}`)
+        .join("\n");
+      await bot.api
+        .sendMessage(
+          adminId,
+          `✅ <b>Сформирована группа #${groupId}</b>\n${list}\nОбщий бюджет: ${totalBudget.toLocaleString("ru-RU")} ₽`,
+          { parse_mode: "HTML" }
+        )
+        .catch(() => {});
+    }
+  } catch (e) {
+    console.error("checkGroupComplete: уведомления не отправлены:", e);
   }
 }
 
