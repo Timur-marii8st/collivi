@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, haptic } from "../api";
+import Icon from "../Icon";
 
 export default function Apartments() {
   const [data, setData] = useState(undefined);
@@ -16,12 +17,12 @@ export default function Apartments() {
   }
 
   if (data === undefined)
-    return <div className="empty"><div className="big">⏳</div></div>;
+    return <div className="empty"><Icon name="loader" className="big" /></div>;
 
   if (data.needGroup)
     return (
       <div className="empty">
-        <div className="big">🏠</div>
+        <Icon name="home" className="big" />
         Квартиры появляются после того, как вы соберёте группу.
         <br /><br />
         Так мы подбираем варианты точно под ваш общий бюджет.
@@ -31,7 +32,7 @@ export default function Apartments() {
   if (!data.apartments.length)
     return (
       <div className="empty">
-        <div className="big">🔍</div>
+        <Icon name="search" className="big" />
         Подходящих квартир пока нет — мы уже ищем.
         <br />
         Пришлём уведомление, как только появится вариант.

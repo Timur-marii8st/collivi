@@ -5,12 +5,13 @@ import Neighbors from "./screens/Neighbors";
 import GroupScreen from "./screens/Group";
 import Apartments from "./screens/Apartments";
 import Profile from "./screens/Profile";
+import Icon from "./Icon";
 
 const TABS = [
-  { key: "neighbors", ico: "👋", label: "Соседи" },
-  { key: "group", ico: "👥", label: "Группа" },
-  { key: "apts", ico: "🏠", label: "Квартиры" },
-  { key: "profile", ico: "👤", label: "Профиль" },
+  { key: "neighbors", ico: "neighbors", label: "Соседи" },
+  { key: "group", ico: "group", label: "Группа" },
+  { key: "apts", ico: "home", label: "Квартиры" },
+  { key: "profile", ico: "profile", label: "Профиль" },
 ];
 
 export default function App() {
@@ -28,7 +29,8 @@ export default function App() {
   if (loading)
     return (
       <div className="empty">
-        <div className="big">🔑</div>Открываем…
+        <Icon name="loader" className="big" />
+        Открываем…
       </div>
     );
 
@@ -50,7 +52,7 @@ export default function App() {
             className={"tab" + (tab === t.key ? " active" : "")}
             onClick={() => setTab(t.key)}
           >
-            <span className="ico">{t.ico}</span>
+            <span className="ico"><Icon name={t.ico} size={22} /></span>
             {t.label}
           </button>
         ))}

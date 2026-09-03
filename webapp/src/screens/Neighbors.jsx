@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, haptic } from "../api";
+import Icon from "../Icon";
 
 const SLEEP = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
 
@@ -60,11 +61,11 @@ export default function Neighbors() {
     }, 180);
   }
 
-  if (!cands) return <div className="empty"><div className="big">⏳</div>Ищем…</div>;
+  if (!cands) return <div className="empty"><Icon name="loader" className="big" />Ищем…</div>;
   if (!cands.length)
     return (
       <div className="empty">
-        <div className="big">🌱</div>
+        <Icon name="sprout" className="big" />
         Пока нет подходящих соседей.
         <br />
         Мы уведомим тебя, когда появятся новые анкеты.
@@ -73,7 +74,7 @@ export default function Neighbors() {
   if (idx >= cands.length)
     return (
       <div className="empty">
-        <div className="big">🎉</div>
+        <Icon name="check" className="big" />
         Это все анкеты на сегодня!
         <br />
         Загляни позже — новые соседи уже в пути.

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, haptic, alertUser, confirmUser } from "../api";
+import Icon from "../Icon";
 
 export default function GroupScreen() {
   const [group, setGroup] = useState(undefined);
@@ -65,7 +66,7 @@ export default function GroupScreen() {
   }
 
   if (group === undefined)
-    return <div className="empty"><div className="big">⏳</div></div>;
+    return <div className="empty"><Icon name="loader" className="big" /></div>;
 
   // --- есть группа ---
   if (group) {
@@ -138,7 +139,7 @@ export default function GroupScreen() {
     <div>
       {!conns.length ? (
         <div className="empty">
-          <div className="big">👥</div>
+          <Icon name="group" className="big" />
           Взаимных лайков пока нет.
           <br />
           Лайкай соседей во вкладке «Соседи» — при взаимном интересе вы сможете собрать группу.

@@ -70,6 +70,7 @@ try {
 
 if (mePub) {
   for (const p of people) {
+    if (p.id === ME) continue;
     const h = sign({ id: p.id, first_name: p.first_name, username: p.username });
     await api(h, "POST", "/api/like", { to: mePub, like: true }).catch((e) => console.warn(" лайк не прошёл:", e.message));
   }

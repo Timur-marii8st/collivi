@@ -149,10 +149,15 @@ input[type="range"] { width: 100%; accent-color: var(--btn); height: 36px; }
   padding: 6px 0 env(safe-area-inset-bottom);
   z-index: 10;
 }
-.tab { flex: 1; background: none; border: none; color: var(--hint); font-size: 11px; cursor: pointer; padding: 6px 0 4px; display:flex; flex-direction:column; align-items:center; gap:2px; transition: color .15s; }
-.tab .ico { font-size: 21px; filter: grayscale(1) opacity(.55); transition: filter .15s; }
+.tab { flex: 1; background: none; border: none; color: var(--hint); font-size: 11px; cursor: pointer; padding: 6px 0 4px; display:flex; flex-direction:column; align-items:center; gap:3px; transition: color .15s; }
+.tab .ico { display: flex; }
 .tab.active { color: var(--btn); }
-.tab.active .ico { filter: none; }
+
+.icon { display: block; flex-shrink: 0; }
+.icon.big { width: 46px; height: 46px; stroke-width: 1.5; color: var(--btn); margin-bottom: 14px; }
+.icon-spin { animation: icon-spin 1s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .icon-spin { animation: none; } }
 
 .screen { padding: 16px; }
 
