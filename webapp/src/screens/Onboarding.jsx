@@ -81,10 +81,25 @@ const STEPS = [
   {
     key: "occupation",
     title: "Где учишься / работаешь?",
-    sub: "Так соседям будет проще тебя узнать",
-    type: "text",
-    placeholder: "КФУ, ИВМиИТ",
-    maxLength: 120,
+    sub: "Выбери из списка — так легче найти однокурсников",
+    type: "select",
+    placeholder: "Выбери вариант…",
+    options: [
+      ["КФУ", "КФУ — Казанский федеральный университет"],
+      ["КНИТУ (КХТИ)", "КНИТУ — КХТИ"],
+      ["КНИТУ-КАИ", "КНИТУ-КАИ"],
+      ["КГЭУ", "КГЭУ — Энергетический университет"],
+      ["КГАСУ", "КГАСУ — Архитектурно-строительный"],
+      ["КГМУ", "КГМУ — Медицинский университет"],
+      ["КГАВМ", "КГАВМ — Ветеринарная академия"],
+      ["РГУП", "РГУП — Правосудие"],
+      ["ТИСБИ", "ТИСБИ"],
+      ["ККИ РУК", "ККИ РУК"],
+      ["УВО «Университет управления «ТИСБИ»»", "Университет управления «ТИСБИ»"],
+      ["КФ РЭУ им. Плеханова", "РЭУ им. Плеханова (КФ)"],
+      ["Работаю", "Работаю"],
+      ["Другое", "Другое"],
+    ],
   },
   { key: "smoking", title: "Курение дома?", type: "chips", options: [["no", "Не курю"], ["yes", "Курю"]] },
   {
@@ -203,7 +218,7 @@ export default function Onboarding({ me, onDone }) {
         ? budgetOk
         : s.type === "count"
           ? !countState.loading
-          : s.type === "text"
+          : s.type === "text" || s.type === "select"
             ? String(val ?? "").trim().length > 0
             : s.type === "priorities"
               ? Array.isArray(val) && val.length >= 2
@@ -319,8 +334,8 @@ export default function Onboarding({ me, onDone }) {
     else if (cur.length < max) setData({ ...data, [key]: [...cur, v] });
   }
 
-  function onOccupationInput(e) {
-    setData({ ...data, occupation: e.target.value });
+  function onTextInput(e) {
+    setData({ ...data, [s.key]: e.target.value });
   }
 
   async function next() {
@@ -429,7 +444,6 @@ export default function Onboarding({ me, onDone }) {
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                placeholder="12000"
                 value={data.budget.min}
                 onChange={(e) => setBudget("min", e.target.value)}
               />
@@ -441,7 +455,6 @@ export default function Onboarding({ me, onDone }) {
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                placeholder="16000"
                 value={data.budget.max}
                 onChange={(e) => setBudget("max", e.target.value)}
               />
@@ -478,9 +491,23 @@ export default function Onboarding({ me, onDone }) {
           value={val ?? ""}
           maxLength={s.maxLength}
           autoFocus
-          onChange={onOccupationInput}
+          onChange={onTextInput}
           onKeyDown={(e) => e.key === "Enter" && canNext && next()}
         />
+      )}
+
+      {s.type === "select" && (
+        <select
+          className="dob-select"
+          data-empty={!val}
+          value={val ?? ""}
+          onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
+        >
+          <option value="" disabled>{s.placeholder}</option>
+          {s.options.map(([v, label]) => (
+            <option key={v} value={v}>{label}</option>
+          ))}
+        </select>
       )}
 
       {(s.type === "chips" || s.type === "multichips") && (

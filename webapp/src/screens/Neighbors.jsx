@@ -40,7 +40,7 @@ function tagsOf(c) {
 export default function Neighbors() {
   const [cands, setCands] = useState(null);
   const [idx, setIdx] = useState(0);
-  const [leaving, setLeaving] = useState(0);
+  const [leaving, setLeaving] = useState(-1); // -1 = ничья карточка не «уезжает»
 
   const load = () =>
     api("/api/candidates")
