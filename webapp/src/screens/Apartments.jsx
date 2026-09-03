@@ -7,7 +7,14 @@ export default function Apartments() {
   const [marked, setMarked] = useState({});
 
   useEffect(() => {
-    api("/api/apartments").then(setData).catch(() => setData({ apartments: [] }));
+    api("/api/apartments")
+      .then((d) => {
+        setData(d);
+        const m = {};
+        (d.apartments || []).forEach((a) => a.interested && (m[a.id] = true));
+        setMarked(m);
+      })
+      .catch(() => setData({ apartments: [] }));
   }, []);
 
   async function interest(id) {
@@ -65,14 +72,18 @@ export default function Apartments() {
                 ≈ {a.per_person.toLocaleString("ru-RU")} ₽ / чел
                 {a.fits ? "" : " ⚠️"}
               </span>
-              <button
-                className={"mini-btn" + (marked[a.id] ? " done" : "")}
-                onClick={() => interest(a.id)}
-                disabled={marked[a.id]}
-              >
-                {marked[a.id] ? "✓ Отмечено" : "Интересно!"}
-              </button>
+              {!marked[a.id] && (
+                <button className="mini-btn" onClick={() => interest(a.id)}>
+                  Интересно!
+                </button>
+              )}
             </div>
+            {marked[a.id] && (
+              <div className="apt-interested">
+                <Icon name="check" size={15} />
+                Заявка отправлена — свяжемся с собственником и организуем просмотр
+              </div>
+            )}
           </div>
         </div>
       ))}

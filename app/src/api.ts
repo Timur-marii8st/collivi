@@ -549,11 +549,14 @@ export function registerApi(app: FastifyInstance) {
     const hasAny = districts.has("Любой") || districts.size === 0;
 
     const { rows } = await pool.query(
-      `SELECT id, title, rooms, price, district, address, isolated_rooms, photo_id, status
-       FROM apartments WHERE status='available'
-       AND price / GREATEST(rooms, 1) <= $1 + 3000
-       ORDER BY created_at DESC LIMIT 30`,
-      [minBudget]
+      `SELECT a.id, a.title, a.rooms, a.price, a.district, a.address, a.isolated_rooms,
+              a.photo_id, a.status,
+              (ai.tg_id IS NOT NULL) AS interested
+       FROM apartments a
+       LEFT JOIN apt_interest ai ON ai.apt_id = a.id AND ai.tg_id = $2
+       WHERE a.status='available' AND a.price / GREATEST(a.rooms, 1) <= $1 + 3000
+       ORDER BY a.created_at DESC LIMIT 30`,
+      [minBudget, me]
     );
     const filtered = rows.filter(
       (a) => hasAny || districts.has(a.district) || a.district === "Любой"

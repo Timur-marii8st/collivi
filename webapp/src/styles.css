@@ -284,8 +284,14 @@ input[type="range"] { width: 100%; accent-color: var(--btn); height: 36px; }
 .apt-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 13px; }
 .per-person { font-size: 15px; font-weight: 700; color: var(--btn); }
 .mini-btn { background: color-mix(in srgb, var(--btn) 12%, var(--bg)); color: var(--btn); border:none; padding: 9px 16px; border-radius: 11px; font-weight: 600; font-size: 13.5px; cursor: pointer; transition: all .15s;}
-.mini-btn.done { background: var(--sec-bg); color: var(--hint); }
 .mini-btn:active { transform: scale(.96); }
+.apt-interested {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--btn); font-size: 13px; line-height: 1.4; font-weight: 500;
+}
+.apt-interested .icon { flex-shrink: 0; margin-top: 1px; }
 
 /* ---------- профиль ---------- */
 .p-row { display:flex; justify-content: space-between; padding: 13px 2px; border-bottom: 1px solid rgba(128,128,128,.1); font-size: 15px;}
