@@ -11,6 +11,8 @@ export const INTERESTS = [
   "чтение", "программирование", "танцы", "фото", "аниме", "авто",
 ];
 
+export const PRIORITIES = ["quiet", "clean", "social", "budget", "schedule"];
+
 export const LABELS = {
   gender: { m: "Парень", f: "Девушка" },
   move_in: {
@@ -32,9 +34,11 @@ export const USER_FORM = [
   { key: "first_name", label: "Имя", type: "text" },
   { key: "username", label: "Username", type: "text" },
   { key: "age", label: "Возраст", type: "number" },
+  { key: "birthdate", label: "Дата рождения", type: "date" },
   { key: "gender", label: "Пол", type: "enum", opts: "gender" },
   { key: "occupation", label: "Учёба / работа", type: "text" },
-  { key: "budget", label: "Бюджет за комнату, ₽", type: "number" },
+  { key: "budget_min", label: "Бюджет от, ₽", type: "number" },
+  { key: "budget_max", label: "Бюджет до, ₽", type: "number" },
   { key: "districts", label: "Районы", type: "multi", opts: DISTRICTS },
   { key: "move_in", label: "Заселение", type: "enum", opts: "move_in" },
   { key: "lease_months", label: "Срок аренды, мес.", type: "number" },
@@ -48,6 +52,7 @@ export const USER_FORM = [
   { key: "pets_has", label: "Есть питомец", type: "bool" },
   { key: "sociability", label: "Характер", type: "enum", opts: "sociability" },
   { key: "interests", label: "Интересы", type: "multi", opts: INTERESTS },
+  { key: "priorities", label: "Приоритеты", type: "multi", opts: PRIORITIES },
   { key: "status", label: "Статус", type: "enum", opts: "status" },
   { key: "onboarded", label: "Анкета заполнена", type: "bool" },
   { key: "admin_note", label: "Заметка администратора", type: "text" },
