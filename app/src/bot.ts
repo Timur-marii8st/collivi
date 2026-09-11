@@ -124,29 +124,43 @@ bot.callbackQuery("del_me_no", async (ctx) => {
 });
 
 bot.callbackQuery("del_me_yes", async (ctx) => {
-  const me = ctx.from!.id;
+  const me = String(ctx.from!.id);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // группы, где я состою — если после выхода останется <2, расформировать
+
     const { rows: groups } = await client.query(
-      "SELECT group_id FROM group_members WHERE tg_id=$1",
+      `SELECT DISTINCT g.id
+       FROM groups g JOIN group_members gm ON gm.group_id=g.id
+       WHERE gm.tg_id=$1
+       FOR UPDATE OF g`,
       [me]
     );
+
+    // Явная очистка нужна и для баз, созданных до появления FK ON DELETE CASCADE.
+    await client.query("DELETE FROM likes WHERE from_tg=$1 OR to_tg=$1", [me]);
+    await client.query("DELETE FROM dislikes WHERE from_tg=$1 OR to_tg=$1", [me]);
+    await client.query("DELETE FROM apt_interest WHERE tg_id=$1", [me]);
+    await client.query("DELETE FROM group_members WHERE tg_id=$1", [me]);
+
     for (const g of groups) {
-      const { rows: cnt } = await client.query(
-        "SELECT COUNT(*)::int n FROM group_members WHERE group_id=$1",
-        [g.group_id]
+      const { rows: rest } = await client.query(
+        "SELECT tg_id FROM group_members WHERE group_id=$1",
+        [g.id]
       );
-      if (cnt[0].n <= 2) {
-        await client.query(
-          "UPDATE users SET status='active' WHERE tg_id IN (SELECT tg_id FROM group_members WHERE group_id=$1)",
-          [g.group_id]
-        );
-        await client.query("DELETE FROM groups WHERE id=$1", [g.group_id]);
+      if (rest.length < 2) {
+        if (rest.length) {
+          await client.query(
+            "UPDATE users SET status='active' WHERE tg_id = ANY($1::bigint[])",
+            [rest.map((x: any) => String(x.tg_id))]
+          );
+        }
+        await client.query("DELETE FROM apt_interest WHERE group_id=$1", [g.id]);
+        await client.query("DELETE FROM group_members WHERE group_id=$1", [g.id]);
+        await client.query("DELETE FROM groups WHERE id=$1", [g.id]);
       }
     }
-    // остальное (likes/dislikes/group_members/apt_interest) уйдёт по ON DELETE CASCADE
+
     await client.query("DELETE FROM users WHERE tg_id=$1", [me]);
     await client.query("COMMIT");
   } catch (e) {
@@ -193,21 +207,50 @@ bot.callbackQuery(/^grp_no:(\d+)$/, async (ctx) => {
 });
 
 export async function checkGroupComplete(groupId: number) {
-  const { rows } = await pool.query(
-    `SELECT gm.tg_id, gm.ready, u.first_name, u.budget
-     FROM group_members gm JOIN users u ON u.tg_id=gm.tg_id
-     WHERE gm.group_id=$1`,
-    [groupId]
-  );
-  if (!rows.length || rows.some((r) => !r.ready)) return;
-  await pool.query("UPDATE groups SET status='confirmed' WHERE id=$1", [groupId]);
-  for (const r of rows)
-    await pool.query("UPDATE users SET status='in_group' WHERE tg_id=$1", [r.tg_id]);
+  const client = await pool.connect();
+  let rows: any[] = [];
+  try {
+    await client.query("BEGIN");
+    const current = await client.query(
+      `SELECT gm.tg_id, gm.ready, u.first_name, u.budget
+       FROM groups g
+       JOIN group_members gm ON gm.group_id=g.id
+       JOIN users u ON u.tg_id=gm.tg_id
+       WHERE g.id=$1 AND g.status='forming'
+       FOR UPDATE OF g`,
+      [groupId]
+    );
+    rows = current.rows;
+    if (!rows.length || rows.some((r: any) => !r.ready)) {
+      await client.query("ROLLBACK");
+      return;
+    }
+
+    const changed = await client.query(
+      "UPDATE groups SET status='confirmed' WHERE id=$1 AND status='forming' RETURNING id",
+      [groupId]
+    );
+    if (!changed.rows.length) {
+      await client.query("ROLLBACK");
+      return;
+    }
+
+    await client.query(
+      "UPDATE users SET status='in_group' WHERE tg_id = ANY($1::bigint[])",
+      [rows.map((r: any) => String(r.tg_id))]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 
   const members = rows.map((r) => ({ tg_id: String(r.tg_id), first_name: r.first_name }));
   const totalBudget = rows.reduce((s, r) => s + (r.budget || 0), 0);
 
-  // уведомления — best-effort: группа уже собрана в БД, ошибка доставки не должна её ронять
+  // Уведомления идут только после успешного единственного перехода в confirmed.
   try {
     const { notifyGroupConfirmed } = await import("./notify");
     await notifyGroupConfirmed(bot, members, totalBudget);
