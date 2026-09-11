@@ -106,7 +106,7 @@ async function detachUserFromGroups(
     ? "AND g.status IN ('forming','confirmed','searching')"
     : "";
   const { rows: groups } = await client.query(
-    `SELECT DISTINCT g.id
+    `SELECT g.id
        FROM groups g JOIN group_members gm ON gm.group_id=g.id
        WHERE gm.tg_id=$1 ${statusSql}
        FOR UPDATE OF g`,
