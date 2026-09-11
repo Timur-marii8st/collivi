@@ -130,7 +130,7 @@ bot.callbackQuery("del_me_yes", async (ctx) => {
     await client.query("BEGIN");
 
     const { rows: groups } = await client.query(
-      `SELECT DISTINCT g.id
+      `SELECT g.id
        FROM groups g JOIN group_members gm ON gm.group_id=g.id
        WHERE gm.tg_id=$1
        FOR UPDATE OF g`,
