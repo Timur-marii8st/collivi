@@ -114,8 +114,8 @@ CREATE TABLE IF NOT EXISTS admin_log (
 CREATE INDEX IF NOT EXISTS admin_log_created_idx ON admin_log (created_at DESC);
 
 -- новые колонки для баз, созданных по старой схеме (свежая установка получает
--- их из CREATE TABLE выше). CHECK и FK на уже заполненную базу — вручную либо
--- через `docker compose down -v`.
+-- их из CREATE TABLE выше). Колонки и FK мигрируются без удаления volume;
+-- CHECK-ограничения старых заполненных таблиц отдельно не навязываем.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS birthdate DATE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_min INT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_max INT;
