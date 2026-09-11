@@ -17,6 +17,7 @@ import { PORT, WEBAPP_URL, NODE_ENV, assertConfig } from "./config";
 export async function configureApp(app: FastifyInstance) {
   // POST без тела (confirm / leave) не должен падать из-за
   // Content-Type: application/json — пустое тело трактуем как {}.
+  app.removeContentTypeParser("application/json");
   app.addContentTypeParser(
     "application/json",
     { parseAs: "string" },
