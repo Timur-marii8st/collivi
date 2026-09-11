@@ -13,9 +13,12 @@ const EDITABLE = {
   first_name: "text",
   username: "text",
   age: "int",
+  birthdate: "date",
   gender: "enum:m,f",
   occupation: "text",
   budget: "int",
+  budget_min: "int",
+  budget_max: "int",
   districts: "text[]",
   move_in: "enum:week,twoweeks,month,later",
   lease_months: "int",
@@ -29,12 +32,13 @@ const EDITABLE = {
   pets_has: "bool",
   sociability: "enum:high,medium,low",
   interests: "text[]",
+  priorities: "text[]",
   status: "enum:active,in_group",
   onboarded: "bool",
   admin_note: "text",
 } as const;
 
-type FieldKind = "text" | "int" | "bool" | "text[]" | `enum:${string}`;
+type FieldKind = "text" | "date" | "int" | "bool" | "text[]" | `enum:${string}`;
 
 /** Приводит значение к типу колонки; бросает Error с текстом для 400 */
 function coerce(field: string, kind: FieldKind, raw: any): any {
@@ -43,6 +47,12 @@ function coerce(field: string, kind: FieldKind, raw: any): any {
     const n = Number(raw);
     if (!Number.isFinite(n)) throw new Error(`${field}: ожидается число`);
     return Math.trunc(n);
+  }
+  if (kind === "date") {
+    const s = String(raw);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(Date.parse(s)))
+      throw new Error(`${field}: ожидается дата YYYY-MM-DD`);
+    return s;
   }
   if (kind === "bool") {
     if (typeof raw === "boolean") return raw;
@@ -85,6 +95,50 @@ async function logAction(
 
 function adminTg(req: FastifyRequest): string {
   return String((req as any).tgUser.id);
+}
+
+async function detachUserFromGroups(
+  client: any,
+  id: string,
+  activeOnly = false
+): Promise<number[]> {
+  const statusSql = activeOnly
+    ? "AND g.status IN ('forming','confirmed','searching')"
+    : "";
+  const { rows: groups } = await client.query(
+    `SELECT DISTINCT g.id
+       FROM groups g JOIN group_members gm ON gm.group_id=g.id
+       WHERE gm.tg_id=$1 ${statusSql}
+       FOR UPDATE OF g`,
+    [id]
+  );
+  const ids = groups.map((g: any) => Number(g.id));
+  if (!ids.length) return [];
+
+  await client.query(
+    "DELETE FROM group_members WHERE tg_id=$1 AND group_id = ANY($2::int[])",
+    [id, ids]
+  );
+
+  for (const groupId of ids) {
+    const { rows: rest } = await client.query(
+      "SELECT tg_id FROM group_members WHERE group_id=$1",
+      [groupId]
+    );
+    if (rest.length < 2) {
+      if (rest.length) {
+        await client.query(
+          "UPDATE users SET status='active' WHERE tg_id = ANY($1::bigint[])",
+          [rest.map((x: any) => String(x.tg_id))]
+        );
+      }
+      // explicit cleanup keeps this safe even before/without FK cascade
+      await client.query("DELETE FROM apt_interest WHERE group_id=$1", [groupId]);
+      await client.query("DELETE FROM group_members WHERE group_id=$1", [groupId]);
+      await client.query("DELETE FROM groups WHERE id=$1", [groupId]);
+    }
+  }
+  return ids;
 }
 
 export function registerAdminApi(app: FastifyInstance) {
@@ -209,20 +263,41 @@ export function registerAdminApi(app: FastifyInstance) {
 
     const sets: string[] = [];
     const vals: any[] = [id];
+    const normalized: Record<string, any> = {};
     try {
       for (const [k, raw] of Object.entries(body)) {
         const kind = (EDITABLE as Record<string, FieldKind>)[k];
         if (!kind) return reply.code(400).send({ error: `поле ${k} недоступно` });
-        vals.push(coerce(k, kind, raw));
-        sets.push(`${k} = $${vals.length}`);
+        const value = coerce(k, kind, raw);
+        normalized[k] = value;
+        vals.push(value);
+        sets.push(`${k} = ${vals.length}`);
       }
     } catch (e: any) {
       return reply.code(400).send({ error: e.message });
     }
     if (!sets.length) return reply.code(400).send({ error: "нет полей" });
 
-    // однополость: prefer_gender всегда равен gender
-    if (body.gender !== undefined) sets.push("prefer_gender = gender");
+    // однополость: используем НОВОЕ значение gender, а не старое значение колонки.
+    if (normalized.gender !== undefined) {
+      vals.push(normalized.gender);
+      sets.push(`prefer_gender = ${vals.length}`);
+    }
+
+    // legacy budget остаётся совместимым с новой вилкой.
+    if (normalized.budget !== undefined) {
+      if (normalized.budget_min === undefined) {
+        vals.push(normalized.budget);
+        sets.push(`budget_min = ${vals.length}`);
+      }
+      if (normalized.budget_max === undefined) {
+        vals.push(normalized.budget);
+        sets.push(`budget_max = ${vals.length}`);
+      }
+    } else if (normalized.budget_max !== undefined) {
+      vals.push(normalized.budget_max);
+      sets.push(`budget = ${vals.length}`);
+    }
     sets.push("updated_at = NOW()");
 
     const { rows } = await pool.query(
@@ -243,38 +318,46 @@ export function registerAdminApi(app: FastifyInstance) {
       notify?: boolean;
     };
     const on = banned !== false;
-    const { rows } = await pool.query(
-      `UPDATE users SET banned=$2, ban_reason=$3, banned_at=CASE WHEN $2 THEN NOW() ELSE NULL END,
-              status = CASE WHEN $2 THEN 'active' ELSE status END, updated_at=NOW()
-       WHERE tg_id=$1 RETURNING *`,
-      [id, on, on ? (reason || "").slice(0, 300) || null : null]
-    );
-    if (!rows.length) return reply.code(404).send({ error: "not found" });
+    const client = await pool.connect();
+    let user: any;
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        `UPDATE users SET banned=$2, ban_reason=$3,
+                banned_at=CASE WHEN $2 THEN NOW() ELSE NULL END,
+                status=CASE WHEN $2 THEN 'active' ELSE status END,
+                updated_at=NOW()
+         WHERE tg_id=$1 RETURNING *`,
+        [id, on, on ? (reason || "").slice(0, 300) || null : null]
+      );
+      if (!rows.length) {
+        await client.query("ROLLBACK");
+        return reply.code(404).send({ error: "not found" });
+      }
+      user = rows[0];
 
-    if (on) {
-      // блокировка выводит из активных подборок: чистим лайки и незавершённые группы
-      await pool.query("DELETE FROM likes WHERE from_tg=$1 OR to_tg=$1", [id]);
-      await pool.query(
-        `DELETE FROM group_members WHERE tg_id=$1 AND group_id IN
-           (SELECT id FROM groups WHERE status='forming')`,
-        [id]
-      );
-      await pool.query(
-        `DELETE FROM groups WHERE status='forming'
-           AND (SELECT COUNT(*) FROM group_members WHERE group_id=groups.id) < 2`
-      );
+      if (on) {
+        await client.query("DELETE FROM likes WHERE from_tg=$1 OR to_tg=$1", [id]);
+        await detachUserFromGroups(client, id, true);
+      }
+      await client.query("COMMIT");
+    } catch (e: any) {
+      await client.query("ROLLBACK").catch(() => {});
+      return reply.code(500).send({ error: e.message });
+    } finally {
+      client.release();
     }
-    await logAction(adminTg(req), on ? "user_ban" : "user_unban", id, { reason });
 
+    await logAction(adminTg(req), on ? "user_ban" : "user_unban", id, { reason });
     if (notify) {
       const text = on
         ? `🚫 Твой доступ к «Своим» ограничен.${reason ? `\n\nПричина: ${reason}` : ""}`
-        : `✅ Доступ к «Своим» восстановлен. Можешь снова открыть приложение.`;
+        : "✅ Доступ к «Своим» восстановлен. Можешь снова открыть приложение.";
       await bot.api
         .sendMessage(id, text, on ? {} : { reply_markup: openAppKeyboard() })
         .catch(() => {});
     }
-    return rows[0];
+    return user;
   });
 
   // удаление учётки со всеми связями
@@ -291,16 +374,14 @@ export function registerAdminApi(app: FastifyInstance) {
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: "not found" });
       }
+
       await client.query("DELETE FROM likes WHERE from_tg=$1 OR to_tg=$1", [id]);
       await client.query("DELETE FROM dislikes WHERE from_tg=$1 OR to_tg=$1", [id]);
       await client.query("DELETE FROM apt_interest WHERE tg_id=$1", [id]);
-      await client.query("DELETE FROM group_members WHERE tg_id=$1", [id]);
-      // группы, в которых осталось меньше двух человек, распускаем
-      await client.query(
-        `DELETE FROM groups WHERE (SELECT COUNT(*) FROM group_members WHERE group_id=groups.id) < 2`
-      );
+      await detachUserFromGroups(client, id, false);
       await client.query("DELETE FROM users WHERE tg_id=$1", [id]);
       await client.query("COMMIT");
+
       await logAction(adminTg(req), "user_delete", id, found.rows[0]);
       return { ok: true };
     } catch (e: any) {
