@@ -1,8 +1,11 @@
 ﻿import { Bot, Context, session, SessionFlavor } from "grammy";
 import { limit } from "@grammyjs/ratelimiter";
-import { BOT_TOKEN, ADMIN_IDS } from "./config";
+import { BOT_TOKEN, ADMIN_IDS, WEBAPP_URL, TG_PROXY } from "./config";
 import { pool } from "./db";
 import { openAppKeyboard, esc, userLink } from "./notify";
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -14,7 +17,12 @@ interface SessionData {
 }
 type MyCtx = Context & SessionFlavor<SessionData>;
 
-export const bot = new Bot<MyCtx>(BOT_TOKEN);
+export const bot = new Bot<MyCtx>(
+  BOT_TOKEN,
+  TG_PROXY
+    ? { client: { baseFetchConfig: { agent: new HttpsProxyAgent(TG_PROXY) as never } } }
+    : {}
+);
 bot.use(session({ initial: (): SessionData => ({}) }));
 
 // анти-флуд: не больше ~5 апдейтов за 2 сек с одного пользователя
@@ -39,6 +47,19 @@ export function isAdmin(ctx: MyCtx): boolean {
 }
 
 // ---------- пользовательские команды ----------
+
+
+function safeError(e: unknown): string {
+  return String((e as any)?.message || e).replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot***");
+}
+
+async function userSupportReply(ctx: MyCtx) {
+  await ctx.reply(
+    "Привет! Я бот сервиса «Свои». Изменить анкету, смотреть соседей и квартиры можно в приложении. Сообщение передали команде.",
+    { reply_markup: openAppKeyboard() }
+  );
+  for (const id of ADMIN_IDS) await ctx.forwardMessage(id).catch(() => {});
+}
 
 bot.command("start", async (ctx) => {
   await ctx.reply(
@@ -378,7 +399,7 @@ bot.callbackQuery(/^apt_push:(\d+):(\d+)$/, async (ctx) => {
 });
 
 bot.on("message:text", async (ctx) => {
-  if (!isAdmin(ctx)) return;
+  if (!isAdmin(ctx)) return userSupportReply(ctx);
   const flow = ctx.session.adminFlow;
   if (!flow) return;
   const d = ctx.session.aptDraft || {};
@@ -540,8 +561,31 @@ async function registerCommands() {
 }
 
 export async function startBot() {
-  bot.catch((err) => console.error("Bot error:", err));
+  bot.catch((err) => console.error("Bot error:", safeError(err)));
   await bot.init();
-  await registerCommands().catch((e) => console.error("setMyCommands failed:", e));
+  await registerCommands().catch((e) => console.error("setMyCommands failed:", safeError(e)));
+
+  const setupCalls: Array<[string, () => Promise<unknown>]> = [
+    ["setMyDescription", () => bot.api.setMyDescription(
+      "Совместная аренда в Казани: найди соседей под свой образ жизни, соберите группу и получите подборку квартир под общий бюджет."
+    )],
+    ["setMyShortDescription", () => bot.api.setMyShortDescription("Поиск соседей для совместной аренды")],
+    ...(WEBAPP_URL ? [[
+      "setChatMenuButton",
+      () => bot.api.setChatMenuButton({
+        menu_button: { type: "web_app", text: "Открыть", web_app: { url: WEBAPP_URL } },
+      }),
+    ] as [string, () => Promise<unknown>]] : []),
+  ];
+  for (const [name, fn] of setupCalls) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try { await fn(); break; }
+      catch (e) {
+        console.error(`Bot meta ${name} (attempt ${attempt}):`, safeError(e));
+        if (attempt < 3) await sleep(2000);
+      }
+    }
+  }
+
   await bot.start({ onStart: () => console.log("Bot started (polling)") });
 }

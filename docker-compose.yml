@@ -21,6 +21,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # именно 127.0.0.1: localhost в контейнере резолвится в ::1,
+      # а Fastify слушает только IPv4
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
     networks:
       - default
       - caddy

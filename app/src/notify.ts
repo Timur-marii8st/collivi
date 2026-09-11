@@ -1,6 +1,20 @@
 import { Bot } from "grammy";
 import { WEBAPP_URL } from "./config";
 
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function sendWithFloodRetry<T>(send: () => Promise<T>): Promise<boolean> {
+  try {
+    await send();
+    return true;
+  } catch (e: any) {
+    const retryAfter = e?.parameters?.retry_after;
+    if (!retryAfter) return false;
+    await sleep((Number(retryAfter) + 1) * 1000);
+    try { await send(); return true; } catch { return false; }
+  }
+}
+
 // экранирование пользовательского текста для parse_mode: "HTML"
 export function esc(s: unknown): string {
   return String(s ?? "")

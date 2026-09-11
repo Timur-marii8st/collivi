@@ -8,6 +8,7 @@ export const DATABASE_URL =
   process.env.DATABASE_URL ||
   "postgres://corenting:corenting@localhost:5432/corenting";
 export const PORT = parseInt(process.env.PORT || "3000", 10);
+export const TG_PROXY = process.env.TG_PROXY || "";
 export const NODE_ENV = process.env.NODE_ENV || "development";
 
 // Пустой BOT_TOKEN => initData проверяется HMAC на пустом ключе => обход

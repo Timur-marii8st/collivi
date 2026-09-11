@@ -29,6 +29,9 @@ export interface UserRow {
   priorities: string[];         // quiet / clean / social / budget / schedule
   status: string;               // active / in_group / inactive
   onboarded: boolean;
+  banned?: boolean;
+  ban_reason?: string | null;
+  admin_note?: string | null;
 }
 
 export interface Candidate {
@@ -86,13 +89,8 @@ export function hardConflict(a: UserRow, b: UserRow): string | null {
   const lb = leaseBucket(b.lease_months);
   if (la != null && lb != null && Math.abs(la - lb) >= 2) return "lease";
 
-  if (a.gender && b.gender) {
-    const okA =
-      a.prefer_gender === "any" || a.prefer_gender === b.gender || a.prefer_gender === "mixed";
-    const okB =
-      b.prefer_gender === "any" || b.prefer_gender === a.gender || b.prefer_gender === "mixed";
-    if (!okA || !okB) return "gender";
-  }
+  // Продуктовое правило main: группы только однополые.
+  if (a.gender && b.gender && a.gender !== b.gender) return "gender";
 
   if (a.smoking === "yes" && b.smoking === "no") return "smoking";
   if (b.smoking === "yes" && a.smoking === "no") return "smoking";
@@ -244,6 +242,7 @@ export async function getCandidates(me: UserRow, limit = 20): Promise<Candidate[
   const { rows } = await pool.query<UserRow>(
     `SELECT u.* FROM users u
      WHERE u.tg_id <> $1 AND u.onboarded AND u.status = 'active'
+       AND COALESCE(u.banned, FALSE) = FALSE
        AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.from_tg=$1 AND l.to_tg=u.tg_id)
        AND NOT EXISTS (SELECT 1 FROM dislikes d WHERE d.from_tg=$1 AND d.to_tg=u.tg_id)`,
     [me.tg_id]
@@ -293,7 +292,7 @@ export async function previewCount(f: PreviewFilters, excludeTgId?: string): Pro
     status: "active", onboarded: true,
   };
   const { rows } = await pool.query<UserRow>(
-    "SELECT * FROM users WHERE onboarded AND status = 'active' AND tg_id <> $1",
+    "SELECT * FROM users WHERE onboarded AND status = 'active' AND COALESCE(banned, FALSE) = FALSE AND tg_id <> $1",
     [excludeTgId ?? "0"]
   );
   let n = 0;

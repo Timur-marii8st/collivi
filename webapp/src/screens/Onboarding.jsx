@@ -49,12 +49,6 @@ const STEPS = [
   },
   { key: "gender", title: "Ты парень или девушка?", type: "chips", options: [["m", "Парень"], ["f", "Девушка"]] },
   {
-    key: "prefer_gender",
-    title: "С кем хочешь жить?",
-    type: "chips",
-    options: [["any", "Не важно"], ["mixed", "Смешанная группа"], ["m", "Только парни"], ["f", "Только девушки"]],
-  },
-  {
     key: "budget",
     title: "Сколько готов платить за свою комнату?",
     sub: "Вилка в месяц, без коммуналки",
@@ -186,18 +180,52 @@ function loadDraft() {
   return null;
 }
 
-export default function Onboarding({ me, onDone }) {
-  const draft = loadDraft();
+export default function Onboarding({ initial, onDone, onCancel }) {
+  const editing = !!initial?.onboarded;
+  const draft = editing ? null : loadDraft();
   const [step, setStep] = useState(() => {
     const n = draft?.step;
     return Number.isInteger(n) && n >= 0 && n < STEPS.length ? n : 0;
   });
-  const [data, setData] = useState(() => ({
-    ...BASE,
-    ...(draft?.data || {}),
-    birth: { ...BASE.birth, ...(draft?.data?.birth || {}) },
-    budget: { ...BASE.budget, ...(draft?.data?.budget || {}) },
-  }));
+  const [data, setData] = useState(() => {
+    if (editing) {
+      const [y = "", m = "", d = ""] = String(initial.birthdate || "").slice(0, 10).split("-");
+      const rawOcc = String(initial.occupation || "");
+      const works = rawOcc === "Работаю" || /·\s*работаю$/i.test(rawOcc);
+      const occupation = rawOcc.replace(/\s*·\s*работаю$/i, "").replace(/^Работаю$/i, "");
+      return {
+        ...BASE,
+        birth: { d, m, y },
+        gender: initial.gender ?? undefined,
+        prefer_gender: initial.gender ?? undefined,
+        occupation,
+        works,
+        budget: {
+          min: String(initial.budget_min ?? initial.budget ?? ""),
+          max: String(initial.budget_max ?? initial.budget ?? ""),
+        },
+        districts: initial.districts || [],
+        move_in: initial.move_in ?? undefined,
+        lease_months: initial.lease_months == null ? "0" : String(initial.lease_months),
+        smoking: initial.smoking ?? undefined,
+        alcohol: initial.alcohol ?? undefined,
+        sleep_time: initial.sleep_time == null ? 24 : (initial.sleep_time >= 21 ? initial.sleep_time : initial.sleep_time + 24),
+        cleanliness: initial.cleanliness ?? 5,
+        guests: initial.guests ?? undefined,
+        parties: initial.parties ?? undefined,
+        pets: initial.pets_has ? "has" : initial.pets_ok === false ? "no" : "ok",
+        sociability: initial.sociability ?? undefined,
+        priorities: initial.priorities || [],
+        interests: initial.interests || [],
+      };
+    }
+    return {
+      ...BASE,
+      ...(draft?.data || {}),
+      birth: { ...BASE.birth, ...(draft?.data?.birth || {}) },
+      budget: { ...BASE.budget, ...(draft?.data?.budget || {}) },
+    };
+  });
   const [saving, setSaving] = useState(false);
   const [countState, setCountState] = useState({ loading: false, value: null, error: false });
 
@@ -209,6 +237,8 @@ export default function Onboarding({ me, onDone }) {
     s.type === "budget" &&
     /^\d+$/.test(String(data.budget.min)) &&
     /^\d+$/.test(String(data.budget.max)) &&
+    +data.budget.min >= 5000 &&
+    +data.budget.max <= 200000 &&
     +data.budget.min <= +data.budget.max;
 
   const canNext =
@@ -235,14 +265,17 @@ export default function Onboarding({ me, onDone }) {
     String(data.budget.min) !== "" &&
     String(data.budget.max) !== "" &&
     !budgetOk
-      ? "«От» не может быть больше «до»"
+      ? (+data.budget.min > +data.budget.max
+          ? "«От» не может быть больше «до»"
+          : "Бюджет — от 5 000 до 200 000 ₽")
       : null;
 
   useEffect(() => {
+    if (editing) return;
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ step, data }));
     } catch (e) {}
-  }, [step, data]);
+  }, [step, data, editing]);
 
   useEffect(() => {
     const w = window.Telegram?.WebApp;
@@ -259,7 +292,7 @@ export default function Onboarding({ me, onDone }) {
   useEffect(() => {
     const bb = window.Telegram?.WebApp?.BackButton;
     if (!bb) return;
-    const onBack = () => setStep((p) => Math.max(0, p - 1));
+    const onBack = () => setStep((p) => { if (p > 0) return p - 1; onCancel?.(); return p; });
     bb.onClick(onBack);
     return () => {
       try {
@@ -272,7 +305,7 @@ export default function Onboarding({ me, onDone }) {
   useEffect(() => {
     const bb = window.Telegram?.WebApp?.BackButton;
     if (!bb) return;
-    if (step > 0) bb.show();
+    if (step > 0 || editing) bb.show();
     else bb.hide();
   }, [step]);
 
@@ -285,7 +318,7 @@ export default function Onboarding({ me, onDone }) {
       body: {
         birthdate: dobISO(data.birth),
         gender: data.gender,
-        prefer_gender: data.prefer_gender,
+        prefer_gender: data.gender,
         budget_min: data.budget.min ? +data.budget.min : null,
         budget_max: data.budget.max ? +data.budget.max : null,
         districts: data.districts,
@@ -299,7 +332,8 @@ export default function Onboarding({ me, onDone }) {
 
   function back() {
     haptic();
-    setStep((p) => Math.max(0, p - 1));
+    if (step > 0) setStep((p) => p - 1);
+    else onCancel?.();
   }
 
   function setBirth(part, value) {
@@ -312,7 +346,7 @@ export default function Onboarding({ me, onDone }) {
 
   function pick(v) {
     haptic();
-    if (s.key === "gender") setData({ ...data, gender: v });
+    if (s.key === "gender") setData({ ...data, gender: v, prefer_gender: v });
     else if (s.key === "prefer_gender") setData({ ...data, prefer_gender: v });
     else if (s.key === "districts")
       setData({
@@ -352,7 +386,7 @@ export default function Onboarding({ me, onDone }) {
       const payload = {
         birthdate: dobISO(data.birth),
         gender: data.gender,
-        prefer_gender: data.prefer_gender,
+        prefer_gender: data.gender,
         occupation:
           data.occupation && data.works
             ? `${data.occupation} · работаю`
@@ -401,7 +435,7 @@ export default function Onboarding({ me, onDone }) {
         <div style={{ width: pct + "%" }} />
       </div>
       <div className="step-count">
-        {step > 0 && (
+        {(step > 0 || editing) && (
           <button type="button" className="back-link" onClick={back}>
             ← Назад
           </button>
@@ -589,7 +623,7 @@ export default function Onboarding({ me, onDone }) {
           : s.type === "count"
             ? "Продолжить"
             : step === STEPS.length - 1
-              ? "Начать поиск соседей →"
+              ? (editing ? "Сохранить изменения" : "Начать поиск соседей →")
               : "Дальше"}
       </button>
     </div>

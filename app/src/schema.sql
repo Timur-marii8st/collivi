@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS users (
   priorities TEXT[] DEFAULT '{}',
   status TEXT DEFAULT 'active',
   onboarded BOOLEAN DEFAULT FALSE,
+  banned BOOLEAN DEFAULT FALSE,
+  ban_reason TEXT,
+  banned_at TIMESTAMPTZ,
+  admin_note TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   CONSTRAINT users_public_id_key UNIQUE (public_id),
@@ -62,6 +66,7 @@ CREATE TABLE IF NOT EXISTS apartments (
   id SERIAL PRIMARY KEY,
   title TEXT, rooms INT, price INT, district TEXT, address TEXT,
   isolated_rooms BOOLEAN DEFAULT TRUE, contact TEXT, photo_id TEXT,
+  photo_path TEXT,
   status TEXT DEFAULT 'available',
   created_by BIGINT, created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -96,6 +101,18 @@ CREATE TABLE IF NOT EXISTS apt_interest (
   PRIMARY KEY (apt_id, tg_id)
 );
 
+
+-- журнал действий администратора
+CREATE TABLE IF NOT EXISTS admin_log (
+  id SERIAL PRIMARY KEY,
+  admin_tg BIGINT,
+  action TEXT,
+  target TEXT,
+  details JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS admin_log_created_idx ON admin_log (created_at DESC);
+
 -- новые колонки для баз, созданных по старой схеме (свежая установка получает
 -- их из CREATE TABLE выше). CHECK и FK на уже заполненную базу — вручную либо
 -- через `docker compose down -v`.
@@ -104,6 +121,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_min INT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_max INT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS priorities TEXT[] DEFAULT '{}';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id UUID;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_note TEXT;
+ALTER TABLE apartments ADD COLUMN IF NOT EXISTS photo_path TEXT;
 UPDATE users SET public_id = gen_random_uuid() WHERE public_id IS NULL;
 ALTER TABLE users ALTER COLUMN public_id SET DEFAULT gen_random_uuid();
 ALTER TABLE users ALTER COLUMN public_id SET NOT NULL;

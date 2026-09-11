@@ -4,9 +4,9 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cors from "@fastify/cors";
 import { join } from "path";
-import { initDb } from "./db";
+import { initDb, pool } from "./db";
 import { registerApi } from "./api";
-import { startBot } from "./bot";
+import { startBot, bot } from "./bot";
 import { PORT, WEBAPP_URL, NODE_ENV, assertConfig } from "./config";
 
 /**
@@ -90,12 +90,25 @@ async function main() {
 
   if (process.env.DISABLE_BOT === "1") {
     console.warn("DISABLE_BOT=1 — бот не запускается, только API + webapp");
-    return;
+  } else {
+    startBot().catch((e) => {
+      console.error("Bot failed:", e);
+      process.exit(1);
+    });
   }
-  startBot().catch((e) => {
-    console.error("Bot failed:", e);
-    process.exit(1);
-  });
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received, shutting down…`);
+    try { await bot.stop(); } catch (e) { console.error("bot.stop:", e); }
+    try { await app.close(); } catch (e) { console.error("app.close:", e); }
+    try { await pool.end(); } catch (e) { console.error("pool.end:", e); }
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 if (require.main === module) main();

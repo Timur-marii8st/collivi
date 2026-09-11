@@ -17,6 +17,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=app-build /app/node_modules ./node_modules
 COPY --from=app-build /app/dist ./dist
+COPY app/src/schema.sql ./dist/schema.sql
 COPY --from=webapp-build /webapp/dist ./public
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import https from "https";
 import { pool } from "./db";
 import { validateInitData } from "./auth";
 import { getCandidates, hardConflict, previewCount, UserRow } from "./matching";
@@ -8,6 +9,11 @@ import {
   notifyGroupMemberLeft,
 } from "./notify";
 import { bot, checkGroupComplete } from "./bot";
+import { registerAdminApi, isAdminId } from "./admin";
+import { BOT_TOKEN, TG_PROXY } from "./config";
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 async function getUser(tgId: string): Promise<UserRow | null> {
   const { rows } = await pool.query<UserRow>(
@@ -15,6 +21,22 @@ async function getUser(tgId: string): Promise<UserRow | null> {
     [tgId]
   );
   return rows[0] || null;
+}
+
+/** Поля профиля, безопасные для пользовательского API. */
+const PUBLIC_USER_FIELDS = [
+  "public_id", "first_name", "username", "birthdate", "age", "gender",
+  "prefer_gender", "occupation", "budget", "budget_min", "budget_max",
+  "districts", "move_in", "lease_months", "smoking", "alcohol", "sleep_time",
+  "cleanliness", "guests", "parties", "pets_ok", "pets_has", "sociability",
+  "interests", "priorities", "status", "onboarded",
+] as const;
+
+function publicUser(u: UserRow) {
+  const out: Record<string, unknown> = {};
+  for (const f of PUBLIC_USER_FIELDS)
+    out[f] = (u as unknown as Record<string, unknown>)[f];
+  return out;
 }
 
 /** Непрозрачный public_id из ответов API → внутренний tg_id. null, если не найден. */
@@ -116,11 +138,11 @@ function parseProfile(body: unknown): { value?: Patch; error?: string } {
     out.birthdate = raw;
     out.age = age;
   }
-  if ((e = intField("budget", 0, 10_000_000))) return { error: "Бюджет вне допустимого диапазона" };
+  if ((e = intField("budget", 5_000, 200_000))) return { error: "Бюджет — от 5 000 до 200 000 ₽" };
   if ("budget_min" in b || "budget_max" in b) {
     const lo = toInt(b.budget_min);
     const hi = toInt(b.budget_max);
-    if (lo === undefined || hi === undefined || lo < 0 || hi < 0 || hi > 10_000_000)
+    if (lo === undefined || hi === undefined || lo < 5_000 || hi < 5_000 || hi > 200_000)
       return { error: "Укажи бюджет от и до" };
     if (lo > hi) return { error: "«От» не может быть больше «до»" };
     out.budget_min = lo;
@@ -190,8 +212,17 @@ export function registerApi(app: FastifyInstance) {
     const user = validateInitData(initData);
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     (req as any).tgUser = user;
+    if (!isAdminId(user.id)) {
+      const { rows } = await pool.query(
+        "SELECT ban_reason FROM users WHERE tg_id=$1 AND COALESCE(banned,FALSE)",
+        [user.id]
+      );
+      if (rows.length)
+        return reply.code(403).send({ error: "banned", reason: rows[0].ban_reason || null });
+    }
   });
 
+  registerAdminApi(app);
   app.get("/api/health", async () => ({ ok: true }));
 
   // сохранить/обновить анкету
@@ -202,6 +233,7 @@ export function registerApi(app: FastifyInstance) {
       const tg = (req as any).tgUser;
       const { value: patch, error } = parseProfile(req.body);
       if (error || !patch) return reply.code(400).send({ error: error || "bad body" });
+      if (patch.gender) patch.prefer_gender = patch.gender;
 
       await pool.query(
         `INSERT INTO users (tg_id, username, first_name) VALUES ($1,$2,$3)
@@ -228,13 +260,23 @@ export function registerApi(app: FastifyInstance) {
           params
         );
       }
-      return getUser(tg.id);
+      const saved = await getUser(String(tg.id));
+      return saved ? { ...publicUser(saved), is_admin: isAdminId(tg.id) } : null;
     }
   );
 
   app.get("/api/me", async (req) => {
     const tg = (req as any).tgUser;
-    return getUser(tg.id);
+    const is_admin = isAdminId(tg.id);
+    const user = await getUser(String(tg.id));
+    if (!user)
+      return {
+        first_name: tg.first_name || "",
+        username: tg.username || null,
+        onboarded: false,
+        is_admin,
+      };
+    return { ...publicUser(user), is_admin };
   });
 
   // карточки соседей
@@ -381,6 +423,11 @@ export function registerApi(app: FastifyInstance) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        const all = [me, ...members];
+        await client.query(
+          "SELECT tg_id FROM users WHERE tg_id = ANY($1::bigint[]) FOR UPDATE",
+          [all]
+        );
 
         for (const m of members) {
           const { rows } = await client.query(
@@ -596,5 +643,70 @@ export function registerApi(app: FastifyInstance) {
       [aptId, grp.rows[0].group_id, me]
     );
     return { ok: true };
+  });
+
+  // фото квартиры: в базе лежит Telegram file_id, который нельзя вставить в <img>,
+  // поэтому отдаём байты через себя (ушедший в теле наружу токен = полная компрометация бота)
+  app.get("/api/apartments/:id/photo", async (req, reply) => {
+    const aptId = parseInt((req.params as any).id, 10);
+    const { rows } = await pool.query(
+      "SELECT photo_id, photo_path FROM apartments WHERE id=$1",
+      [aptId]
+    );
+    const apt = rows[0];
+    if (!apt || !apt.photo_id) return reply.code(404).send({ error: "нет фото" });
+
+    let filePath: string | undefined = apt.photo_path || undefined;
+    if (!filePath) {
+      try {
+        const f = await bot.api.getFile(apt.photo_id);
+        filePath = f.file_path;
+        // кэшируем, чтобы не дёргать getFile на каждый показ карточки
+        if (filePath)
+          await pool.query("UPDATE apartments SET photo_path=$1 WHERE id=$2", [
+            filePath,
+            aptId,
+          ]);
+      } catch {
+        return reply.code(404).send({ error: "нет фото" });
+      }
+    }
+    if (!filePath) return reply.code(404).send({ error: "нет фото" });
+
+    reply.hijack();
+    await new Promise<void>((resolve) => {
+      const opts: https.RequestOptions = TG_PROXY
+        ? { agent: new HttpsProxyAgent(TG_PROXY) }
+        : {};
+      https
+        .get(
+          `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
+          opts,
+          (up) => {
+            if (!up.statusCode || up.statusCode >= 400) {
+              up.resume();
+              reply.raw.writeHead(502, { "Content-Type": "application/json" });
+              reply.raw.end(JSON.stringify({ error: "фото недоступно" }));
+              return resolve();
+            }
+            reply.raw.writeHead(200, {
+              "Content-Type": up.headers["content-type"] || "image/jpeg",
+              "Cache-Control": "public, max-age=86400",
+            });
+            up.pipe(reply.raw);
+            up.on("end", resolve);
+            up.on("error", () => resolve());
+          }
+        )
+        .on("error", () => {
+          if (!reply.raw.headersSent) {
+            reply.raw.writeHead(502, { "Content-Type": "application/json" });
+            reply.raw.end(JSON.stringify({ error: "фото недоступно" }));
+          } else {
+            reply.raw.end();
+          }
+          resolve();
+        });
+    });
   });
 }

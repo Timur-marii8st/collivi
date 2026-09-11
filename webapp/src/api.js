@@ -66,3 +66,11 @@ export async function api(path, options = {}) {
   }
   return res.json();
 }
+
+// фото квартир сервер отдаёт байтами (см. /api/.../photo), а не JSON —
+// поэтому отдельный хелпер, возвращающий object-URL для <img>
+export async function apiPhotoUrl(path) {
+  const res = await fetch(path, { headers: { "x-init-data": initData() } });
+  if (!res.ok) throw new Error(res.status);
+  return URL.createObjectURL(await res.blob());
+}
