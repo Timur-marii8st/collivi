@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic, apiPhotoUrl } from "../api";
+import { api, haptic, apiPhotoUrl, alertUser } from "../api";
 import Icon from "../Icon";
 
 export default function Apartments() {
@@ -33,8 +33,14 @@ export default function Apartments() {
 
   async function interest(id) {
     haptic();
-    setMarked((m) => ({ ...m, [id]: true }));
-    await api(`/api/apartments/${id}/interest`, { method: "POST" }).catch(() => {});
+    try {
+      await api(`/api/apartments/${id}/interest`, { method: "POST" });
+      setMarked((m) => ({ ...m, [id]: true }));
+      haptic("success");
+    } catch (e) {
+      haptic("error");
+      alertUser(e.serverMessage || "Не удалось отправить заявку. Попробуй ещё раз.");
+    }
   }
 
   if (data === undefined)
