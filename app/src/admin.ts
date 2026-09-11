@@ -271,32 +271,53 @@ export function registerAdminApi(app: FastifyInstance) {
         const value = coerce(k, kind, raw);
         normalized[k] = value;
         vals.push(value);
-        sets.push(`${k} = ${vals.length}`);
+        sets.push(`${k} = $${vals.length}`);
       }
     } catch (e: any) {
       return reply.code(400).send({ error: e.message });
     }
     if (!sets.length) return reply.code(400).send({ error: "нет полей" });
 
+    if (normalized.birthdate !== undefined && normalized.birthdate !== null) {
+      const [y, m, d] = String(normalized.birthdate).split("-").map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      if (
+        dt.getUTCFullYear() !== y ||
+        dt.getUTCMonth() + 1 !== m ||
+        dt.getUTCDate() !== d
+      )
+        return reply.code(400).send({ error: "birthdate: такой даты не существует" });
+      const now = new Date();
+      let age = now.getUTCFullYear() - y;
+      if (
+        now.getUTCMonth() + 1 < m ||
+        (now.getUTCMonth() + 1 === m && now.getUTCDate() < d)
+      )
+        age--;
+      if (age < 18)
+        return reply.code(400).send({ error: "birthdate: регистрация с 18 лет" });
+      vals.push(age);
+      sets.push(`age = $${vals.length}`);
+    }
     // однополость: используем НОВОЕ значение gender, а не старое значение колонки.
     if (normalized.gender !== undefined) {
       vals.push(normalized.gender);
-      sets.push(`prefer_gender = ${vals.length}`);
+      sets.push(`prefer_gender = $${vals.length}`);
     }
 
     // legacy budget остаётся совместимым с новой вилкой.
     if (normalized.budget !== undefined) {
       if (normalized.budget_min === undefined) {
         vals.push(normalized.budget);
-        sets.push(`budget_min = ${vals.length}`);
+        sets.push(`budget_min = $${vals.length}`);
       }
       if (normalized.budget_max === undefined) {
         vals.push(normalized.budget);
-        sets.push(`budget_max = ${vals.length}`);
+        sets.push(`budget_max = $${vals.length}`);
       }
     } else if (normalized.budget_max !== undefined) {
       vals.push(normalized.budget_max);
-      sets.push(`budget = ${vals.length}`);
+      sets.push(`budget = $${vals.length}`);
     }
     sets.push("updated_at = NOW()");
 
