@@ -147,45 +147,36 @@ WHERE NOT EXISTS (SELECT 1 FROM apartments a WHERE a.id=ai.apt_id)
    OR NOT EXISTS (SELECT 1 FROM groups g WHERE g.id=ai.group_id)
    OR NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=ai.tg_id);
 
-DO $
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='likes_from_tg_fkey') THEN
-    ALTER TABLE likes ADD CONSTRAINT likes_from_tg_fkey
-      FOREIGN KEY (from_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='likes_to_tg_fkey') THEN
-    ALTER TABLE likes ADD CONSTRAINT likes_to_tg_fkey
-      FOREIGN KEY (to_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='dislikes_from_tg_fkey') THEN
-    ALTER TABLE dislikes ADD CONSTRAINT dislikes_from_tg_fkey
-      FOREIGN KEY (from_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='dislikes_to_tg_fkey') THEN
-    ALTER TABLE dislikes ADD CONSTRAINT dislikes_to_tg_fkey
-      FOREIGN KEY (to_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='group_members_group_id_fkey') THEN
-    ALTER TABLE group_members ADD CONSTRAINT group_members_group_id_fkey
-      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='group_members_tg_id_fkey') THEN
-    ALTER TABLE group_members ADD CONSTRAINT group_members_tg_id_fkey
-      FOREIGN KEY (tg_id) REFERENCES users(tg_id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='apt_interest_apt_id_fkey') THEN
-    ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_apt_id_fkey
-      FOREIGN KEY (apt_id) REFERENCES apartments(id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='apt_interest_group_id_fkey') THEN
-    ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_group_id_fkey
-      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='apt_interest_tg_id_fkey') THEN
-    ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_tg_id_fkey
-      FOREIGN KEY (tg_id) REFERENCES users(tg_id) ON DELETE CASCADE;
-  END IF;
-END $;
+ALTER TABLE likes DROP CONSTRAINT IF EXISTS likes_from_tg_fkey;
+ALTER TABLE likes ADD CONSTRAINT likes_from_tg_fkey
+  FOREIGN KEY (from_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+ALTER TABLE likes DROP CONSTRAINT IF EXISTS likes_to_tg_fkey;
+ALTER TABLE likes ADD CONSTRAINT likes_to_tg_fkey
+  FOREIGN KEY (to_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+
+ALTER TABLE dislikes DROP CONSTRAINT IF EXISTS dislikes_from_tg_fkey;
+ALTER TABLE dislikes ADD CONSTRAINT dislikes_from_tg_fkey
+  FOREIGN KEY (from_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+ALTER TABLE dislikes DROP CONSTRAINT IF EXISTS dislikes_to_tg_fkey;
+ALTER TABLE dislikes ADD CONSTRAINT dislikes_to_tg_fkey
+  FOREIGN KEY (to_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+
+ALTER TABLE group_members DROP CONSTRAINT IF EXISTS group_members_group_id_fkey;
+ALTER TABLE group_members ADD CONSTRAINT group_members_group_id_fkey
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+ALTER TABLE group_members DROP CONSTRAINT IF EXISTS group_members_tg_id_fkey;
+ALTER TABLE group_members ADD CONSTRAINT group_members_tg_id_fkey
+  FOREIGN KEY (tg_id) REFERENCES users(tg_id) ON DELETE CASCADE;
+
+ALTER TABLE apt_interest DROP CONSTRAINT IF EXISTS apt_interest_apt_id_fkey;
+ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_apt_id_fkey
+  FOREIGN KEY (apt_id) REFERENCES apartments(id) ON DELETE CASCADE;
+ALTER TABLE apt_interest DROP CONSTRAINT IF EXISTS apt_interest_group_id_fkey;
+ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_group_id_fkey
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+ALTER TABLE apt_interest DROP CONSTRAINT IF EXISTS apt_interest_tg_id_fkey;
+ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_tg_id_fkey
+  FOREIGN KEY (tg_id) REFERENCES users(tg_id) ON DELETE CASCADE;
 
 -- индексы
 
