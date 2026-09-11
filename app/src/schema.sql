@@ -131,6 +131,62 @@ ALTER TABLE users ALTER COLUMN public_id SET DEFAULT gen_random_uuid();
 ALTER TABLE users ALTER COLUMN public_id SET NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS users_public_id_key ON users(public_id);
 
+-- Миграция старой схемы main: раньше связующие таблицы были без FK.
+-- Сначала удаляем уже накопившиеся orphan-строки, затем добавляем каскадные FK.
+DELETE FROM likes l
+WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=l.from_tg)
+   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=l.to_tg);
+DELETE FROM dislikes d
+WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=d.from_tg)
+   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=d.to_tg);
+DELETE FROM group_members gm
+WHERE NOT EXISTS (SELECT 1 FROM groups g WHERE g.id=gm.group_id)
+   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=gm.tg_id);
+DELETE FROM apt_interest ai
+WHERE NOT EXISTS (SELECT 1 FROM apartments a WHERE a.id=ai.apt_id)
+   OR NOT EXISTS (SELECT 1 FROM groups g WHERE g.id=ai.group_id)
+   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.tg_id=ai.tg_id);
+
+DO $
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='likes_from_tg_fkey') THEN
+    ALTER TABLE likes ADD CONSTRAINT likes_from_tg_fkey
+      FOREIGN KEY (from_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='likes_to_tg_fkey') THEN
+    ALTER TABLE likes ADD CONSTRAINT likes_to_tg_fkey
+      FOREIGN KEY (to_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='dislikes_from_tg_fkey') THEN
+    ALTER TABLE dislikes ADD CONSTRAINT dislikes_from_tg_fkey
+      FOREIGN KEY (from_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='dislikes_to_tg_fkey') THEN
+    ALTER TABLE dislikes ADD CONSTRAINT dislikes_to_tg_fkey
+      FOREIGN KEY (to_tg) REFERENCES users(tg_id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='group_members_group_id_fkey') THEN
+    ALTER TABLE group_members ADD CONSTRAINT group_members_group_id_fkey
+      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='group_members_tg_id_fkey') THEN
+    ALTER TABLE group_members ADD CONSTRAINT group_members_tg_id_fkey
+      FOREIGN KEY (tg_id) REFERENCES users(tg_id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='apt_interest_apt_id_fkey') THEN
+    ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_apt_id_fkey
+      FOREIGN KEY (apt_id) REFERENCES apartments(id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='apt_interest_group_id_fkey') THEN
+    ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_group_id_fkey
+      FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='apt_interest_tg_id_fkey') THEN
+    ALTER TABLE apt_interest ADD CONSTRAINT apt_interest_tg_id_fkey
+      FOREIGN KEY (tg_id) REFERENCES users(tg_id) ON DELETE CASCADE;
+  END IF;
+END $;
+
 -- индексы
 
 CREATE INDEX IF NOT EXISTS likes_to_tg_idx ON likes(to_tg);
