@@ -113,7 +113,14 @@ export default function AdminUser({ tgId, onClose, onChanged }) {
         <div className="adm-kv">
           <div><span>Статус</span><b>{label("status", u.status)}</b></div>
           <div><span>Анкета</span><b>{u.onboarded ? "заполнена" : "черновик"}</b></div>
-          <div><span>Бюджет</span><b>{money(u.budget)}</b></div>
+          <div>
+            <span>Бюджет</span>
+            <b>
+              {u.budget_min != null && u.budget_max != null
+                ? `${money(u.budget_min)} – ${money(u.budget_max)}`
+                : money(u.budget)}
+            </b>
+          </div>
           <div><span>Регистрация</span><b>{fmtDate(u.created_at)}</b></div>
           <div><span>Обновлена</span><b>{fmtDate(u.updated_at)}</b></div>
           {u.banned && (

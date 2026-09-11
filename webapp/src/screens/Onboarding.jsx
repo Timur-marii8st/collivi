@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { api, haptic, initData } from "../api";
+import React, { useEffect, useState } from "react";
+import { api, haptic, alertUser } from "../api";
 
 const DISTRICTS = [
   "Вахитовский", "Советский", "Приволжский", "Авиастроительный",
@@ -9,34 +9,75 @@ const INTERESTS = [
   "спорт", "игры", "музыка", "кино", "готовка", "путешествия",
   "чтение", "программирование", "танцы", "фото", "аниме", "авто",
 ];
+const MONTHS = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря",
+];
 
 function fmtSleep(v) {
   const h = ((v % 24) + 24) % 24;
   return `${String(h).padStart(2, "0")}:00`;
 }
 
+const CUR_YEAR = new Date().getFullYear();
+const YEARS = [];
+for (let y = CUR_YEAR - 18; y >= 1950; y--) YEARS.push(y);
+
+function dobStatus(b) {
+  if (!b || !b.d || !b.m || !b.y) return "incomplete";
+  const d = +b.d, m = +b.m, y = +b.y;
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return "invalid";
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--;
+  if (age < 18) return "underage";
+  return "ok";
+}
+
+function dobISO(b) {
+  if (!b || !b.d || !b.m || !b.y) return null;
+  return `${b.y}-${String(b.m).padStart(2, "0")}-${String(b.d).padStart(2, "0")}`;
+}
+
 const STEPS = [
   {
-    key: "age",
-    title: "Сколько тебе лет?",
+    key: "birthdate",
+    title: "Дата рождения",
     sub: null,
-    type: "number",
-    placeholder: "18",
-    min: 16,
-    max: 60,
-    hint: "Возраст — от 16 до 60",
+    type: "dob",
+  },
+  { key: "gender", title: "Ты парень или девушка?", type: "chips", options: [["m", "Парень"], ["f", "Девушка"]] },
+  {
+    key: "budget",
+    title: "Сколько готов платить за свою комнату?",
+    sub: "Вилка в месяц, без коммуналки",
+    type: "budget",
+  },
+  { key: "districts", title: "Какие районы рассматриваешь?", type: "multichips", options: DISTRICTS.map((d) => [d, d]) },
+  {
+    key: "move_in",
+    title: "Когда готов заселиться?",
+    type: "chips",
+    options: [["week", "В ближайшую неделю"], ["twoweeks", "Через 1–2 недели"], ["month", "Примерно через месяц"], ["later", "Позже"]],
   },
   {
-    key: "gender",
-    title: "Ты парень или девушка?",
+    key: "lease_months",
+    title: "На какой срок снимаешь?",
     type: "chips",
-    options: [["m", "Парень"], ["f", "Девушка"]],
+    options: [["6", "Полгода"], ["12", "Год"], ["24", "Год и дольше"], ["0", "Пока не знаю"]],
+  },
+  {
+    key: "_count",
+    title: "Смотрим, кто подходит",
+    type: "count",
   },
   {
     key: "occupation",
     title: "Где учишься / работаешь?",
-    sub: "Выбери из списка — так легче найти однокурсников",
-    type: "select",
+    sub: "Выбери вуз из списка и/или отметь, что работаешь",
+    type: "occupation",
+    placeholder: "Учебное заведение",
     options: [
       ["КФУ", "КФУ — Казанский федеральный университет"],
       ["КНИТУ (КХТИ)", "КНИТУ — КХТИ"],
@@ -50,53 +91,17 @@ const STEPS = [
       ["ККИ РУК", "ККИ РУК"],
       ["УВО «Университет управления «ТИСБИ»»", "Университет управления «ТИСБИ»"],
       ["КФ РЭУ им. Плеханова", "РЭУ им. Плеханова (КФ)"],
-      ["Работаю", "Работаю"],
       ["Другое", "Другое"],
     ],
   },
-  {
-    key: "budget",
-    title: "Сколько готов платить за свою комнату в месяц?",
-    sub: "Без учёта коммуналки",
-    type: "number",
-    placeholder: "15000",
-    suffix: " ₽",
-    min: 5000,
-    max: 200000,
-    hint: "Бюджет — от 5 000 до 200 000 ₽",
-  },
-  {
-    key: "districts",
-    title: "Какие районы рассматриваешь?",
-    type: "multichips",
-    options: DISTRICTS.map((d) => [d, d]),
-  },
-  {
-    key: "move_in",
-    title: "Когда готов заселиться?",
-    type: "chips",
-    options: [["week", "В ближайшую неделю"], ["twoweeks", "Через 1–2 недели"], ["month", "Примерно через месяц"], ["later", "Позже"]],
-  },
-  {
-    key: "smoking",
-    title: "Курение дома?",
-    type: "chips",
-    options: [["no", "Не курю"], ["yes", "Курю"]],
-  },
+  { key: "smoking", title: "Курение дома?", type: "chips", options: [["no", "Не курю"], ["yes", "Курю"]] },
   {
     key: "alcohol",
     title: "Алкоголь дома?",
     type: "chips",
     options: [["no", "Не пью"], ["sometimes", "Иногда"], ["yes", "Свободно"]],
   },
-  {
-    key: "sleep_time",
-    title: "Во сколько обычно ложишься?",
-    type: "slider",
-    min: 21,
-    max: 27,
-    format: fmtSleep,
-  },
+  { key: "sleep_time", title: "Во сколько обычно ложишься?", type: "slider", min: 21, max: 27, format: fmtSleep },
   {
     key: "cleanliness",
     title: "Насколько важна чистота?",
@@ -132,96 +137,225 @@ const STEPS = [
     options: [["high", "Люблю общаться"], ["medium", "По настроению"], ["low", "Предпочитаю тишину"]],
   },
   {
-    key: "interests",
-    title: "Что тебе ближе?",
-    sub: "Выбери до 5",
-    type: "interests",
-    options: INTERESTS.map((i) => [i, i]),
+    key: "priorities",
+    title: "Что для тебя важнее в соседе?",
+    sub: "Выбери 2–3 — под них подстроим подбор",
+    type: "priorities",
+    max: 3,
+    options: [
+      ["quiet", "Тишина и режим"],
+      ["clean", "Чистота"],
+      ["social", "Общение"],
+      ["budget", "Близкий бюджет"],
+      ["schedule", "Совпадение графика"],
+    ],
   },
+  { key: "interests", title: "Что тебе ближе?", sub: "Выбери до 5", type: "interests", options: INTERESTS.map((i) => [i, i]) },
 ];
 
+const Q_TOTAL = STEPS.filter((s) => s.type !== "count").length;
+
+const DRAFT_KEY = "svoi:onboarding";
+const BASE = {
+  prefer_gender: "any",
+  districts: [],
+  pets_ok: true,
+  pets_has: false,
+  interests: [],
+  priorities: [],
+  works: false,
+  sleep_time: 24,
+  cleanliness: 5,
+  birth: { d: "", m: "", y: "" },
+  budget: { min: "", max: "" },
+};
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (p && typeof p === "object" && p.data && typeof p.data === "object") return p;
+  } catch (e) {}
+  return null;
+}
+
 export default function Onboarding({ initial, onDone, onCancel }) {
-  // initial приходит при редактировании анкеты из «Профиля»
   const editing = !!initial?.onboarded;
-  const [step, setStep] = useState(0);
+  const draft = editing ? null : loadDraft();
+  const [step, setStep] = useState(() => {
+    const n = draft?.step;
+    return Number.isInteger(n) && n >= 0 && n < STEPS.length ? n : 0;
+  });
   const [data, setData] = useState(() => {
-    const base = {
-      districts: [],
-      lease_months: 12,
-      pets_ok: true,
-      pets_has: false,
-      interests: [],
-      // без дефолтов у слайдеров «Дальше» была заблокирована,
-      // пока человек не подвинет ползунок — тупик без объяснения
-      sleep_time: 23,
-      cleanliness: 5,
-    };
-    if (!editing) return base;
-    // в БД час сна хранится как 0-23, а шкала 21-27 (25 = 01:00);
-    // возвращаем ночные часы обратно на шкалу
-    const sleep =
-      initial.sleep_time == null
-        ? 23
-        : initial.sleep_time >= 21
-          ? initial.sleep_time
-          : initial.sleep_time + 24;
+    if (editing) {
+      const [y = "", m = "", d = ""] = String(initial.birthdate || "").slice(0, 10).split("-");
+      const rawOcc = String(initial.occupation || "");
+      const works = rawOcc === "Работаю" || /·\s*работаю$/i.test(rawOcc);
+      const occupation = rawOcc.replace(/\s*·\s*работаю$/i, "").replace(/^Работаю$/i, "");
+      return {
+        ...BASE,
+        birth: { d, m, y },
+        gender: initial.gender ?? undefined,
+        prefer_gender: initial.gender ?? undefined,
+        occupation,
+        works,
+        budget: {
+          min: String(initial.budget_min ?? initial.budget ?? ""),
+          max: String(initial.budget_max ?? initial.budget ?? ""),
+        },
+        districts: initial.districts || [],
+        move_in: initial.move_in ?? undefined,
+        lease_months: initial.lease_months == null ? "0" : String(initial.lease_months),
+        smoking: initial.smoking ?? undefined,
+        alcohol: initial.alcohol ?? undefined,
+        sleep_time: initial.sleep_time == null ? 24 : (initial.sleep_time >= 21 ? initial.sleep_time : initial.sleep_time + 24),
+        cleanliness: initial.cleanliness ?? 5,
+        guests: initial.guests ?? undefined,
+        parties: initial.parties ?? undefined,
+        pets: initial.pets_has ? "has" : initial.pets_ok === false ? "no" : "ok",
+        sociability: initial.sociability ?? undefined,
+        priorities: initial.priorities || [],
+        interests: initial.interests || [],
+      };
+    }
     return {
-      ...base,
-      age: initial.age ?? "",
-      gender: initial.gender ?? undefined,
-      prefer_gender: initial.gender ?? undefined,
-      occupation: initial.occupation ?? "",
-      budget: initial.budget ?? "",
-      districts: initial.districts || [],
-      move_in: initial.move_in ?? undefined,
-      lease_months: initial.lease_months || 12,
-      smoking: initial.smoking ?? undefined,
-      alcohol: initial.alcohol ?? undefined,
-      sleep_time: sleep,
-      cleanliness: initial.cleanliness ?? 5,
-      guests: initial.guests ?? undefined,
-      parties: initial.parties ?? undefined,
-      pets: initial.pets_has ? "has" : initial.pets_ok ? "ok" : "no",
-      pets_ok: !!initial.pets_ok,
-      pets_has: !!initial.pets_has,
-      sociability: initial.sociability ?? undefined,
-      interests: initial.interests || [],
+      ...BASE,
+      ...(draft?.data || {}),
+      birth: { ...BASE.birth, ...(draft?.data?.birth || {}) },
+      budget: { ...BASE.budget, ...(draft?.data?.budget || {}) },
     };
   });
   const [saving, setSaving] = useState(false);
+  const [countState, setCountState] = useState({ loading: false, value: null, error: false });
 
   const s = STEPS[step];
   const val = data[s.key];
 
-  // возраст и бюджет проверяем сразу на шаге, а не сервером в самом конце
-  const numVal =
-    s.type === "number" ? parseInt(String(val ?? "").trim(), 10) : null;
-  const numError =
-    s.type === "number" &&
-    String(val ?? "").trim() !== "" &&
-    (!Number.isFinite(numVal) ||
-      (s.min !== undefined && numVal < s.min) ||
-      (s.max !== undefined && numVal > s.max))
-      ? s.hint
-      : null;
+  const dob = s.type === "dob" ? dobStatus(data.birth) : null;
+  const budgetOk =
+    s.type === "budget" &&
+    /^\d+$/.test(String(data.budget.min)) &&
+    /^\d+$/.test(String(data.budget.max)) &&
+    +data.budget.min >= 5000 &&
+    +data.budget.max <= 200000 &&
+    +data.budget.min <= +data.budget.max;
 
   const canNext =
-    s.type === "number" || s.type === "text"
-      ? String(val ?? "").trim().length > 0 && !numError
-      : Array.isArray(val)
-        ? val.length > 0
-        : val !== undefined;
+    s.type === "dob"
+      ? dob === "ok"
+      : s.type === "budget"
+        ? budgetOk
+        : s.type === "count"
+          ? !countState.loading
+          : s.type === "occupation"
+            ? !!data.occupation || !!data.works
+            : s.type === "text"
+              ? String(val ?? "").trim().length > 0
+              : s.type === "priorities"
+              ? Array.isArray(val) && val.length >= 2
+              : Array.isArray(val)
+                ? val.length > 0
+                : val !== undefined;
+
+  const dobError =
+    dob === "invalid" ? "Такой даты не существует" : dob === "underage" ? "Регистрация с 18 лет" : null;
+  const budgetError =
+    s.type === "budget" &&
+    String(data.budget.min) !== "" &&
+    String(data.budget.max) !== "" &&
+    !budgetOk
+      ? (+data.budget.min > +data.budget.max
+          ? "«От» не может быть больше «до»"
+          : "Бюджет — от 5 000 до 200 000 ₽")
+      : null;
+
+  useEffect(() => {
+    if (editing) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ step, data }));
+    } catch (e) {}
+  }, [step, data, editing]);
+
+  useEffect(() => {
+    const w = window.Telegram?.WebApp;
+    try {
+      w?.enableClosingConfirmation?.();
+    } catch (e) {}
+    return () => {
+      try {
+        w?.disableClosingConfirmation?.();
+      } catch (e) {}
+    };
+  }, []);
+
+  useEffect(() => {
+    const bb = window.Telegram?.WebApp?.BackButton;
+    if (!bb) return;
+    const onBack = () => setStep((p) => { if (p > 0) return p - 1; onCancel?.(); return p; });
+    bb.onClick(onBack);
+    return () => {
+      try {
+        bb.offClick(onBack);
+        bb.hide();
+      } catch (e) {}
+    };
+  }, []);
+
+  useEffect(() => {
+    const bb = window.Telegram?.WebApp?.BackButton;
+    if (!bb) return;
+    if (step > 0 || editing) bb.show();
+    else bb.hide();
+  }, [step]);
+
+  // предпросмотр количества совпадений
+  useEffect(() => {
+    if (STEPS[step]?.type !== "count") return;
+    setCountState({ loading: true, value: null, error: false });
+    api("/api/candidates/preview", {
+      method: "POST",
+      body: {
+        birthdate: dobISO(data.birth),
+        gender: data.gender,
+        prefer_gender: data.gender,
+        budget_min: data.budget.min ? +data.budget.min : null,
+        budget_max: data.budget.max ? +data.budget.max : null,
+        districts: data.districts,
+        move_in: data.move_in,
+        lease_months: data.lease_months ? +data.lease_months : null,
+      },
+    })
+      .then((r) => setCountState({ loading: false, value: r.count ?? 0, error: false }))
+      .catch(() => setCountState({ loading: false, value: null, error: true }));
+  }, [step]);
+
+  function back() {
+    haptic();
+    if (step > 0) setStep((p) => p - 1);
+    else onCancel?.();
+  }
+
+  function setBirth(part, value) {
+    setData((d) => ({ ...d, birth: { ...d.birth, [part]: value } }));
+  }
+  function setBudget(part, value) {
+    const digits = value.replace(/\D/g, "").slice(0, 9);
+    setData((d) => ({ ...d, budget: { ...d.budget, [part]: digits } }));
+  }
 
   function pick(v) {
     haptic();
     if (s.key === "gender") setData({ ...data, gender: v, prefer_gender: v });
+    else if (s.key === "prefer_gender") setData({ ...data, prefer_gender: v });
     else if (s.key === "districts")
       setData({
         ...data,
-        districts: data.districts.includes("Любой")
-          ? ["Любой"]
-          : v === "Любой"
-            ? ["Любой"]
+        districts:
+          v === "Любой"
+            ? data.districts.includes("Любой")
+              ? []
+              : ["Любой"]
             : data.districts.includes(v)
               ? data.districts.filter((x) => x !== v)
               : [...data.districts.filter((x) => x !== "Любой"), v],
@@ -229,11 +363,15 @@ export default function Onboarding({ initial, onDone, onCancel }) {
     else setData({ ...data, [s.key]: v });
   }
 
-  function toggleInterest(i) {
+  function toggleMulti(key, v, max) {
     haptic();
-    const cur = data.interests;
-    if (cur.includes(i)) setData({ ...data, interests: cur.filter((x) => x !== i) });
-    else if (cur.length < 5) setData({ ...data, interests: [...cur, i] });
+    const cur = data[key] || [];
+    if (cur.includes(v)) setData({ ...data, [key]: cur.filter((x) => x !== v) });
+    else if (cur.length < max) setData({ ...data, [key]: [...cur, v] });
+  }
+
+  function onTextInput(e) {
+    setData({ ...data, [s.key]: e.target.value });
   }
 
   async function next() {
@@ -246,13 +384,18 @@ export default function Onboarding({ initial, onDone, onCancel }) {
     setSaving(true);
     try {
       const payload = {
-        age: parseInt(data.age, 10),
+        birthdate: dobISO(data.birth),
         gender: data.gender,
         prefer_gender: data.gender,
-        occupation: data.occupation,
-        budget: parseInt(data.budget, 10),
+        occupation:
+          data.occupation && data.works
+            ? `${data.occupation} · работаю`
+            : data.occupation || (data.works ? "Работаю" : ""),
+        budget_min: +data.budget.min,
+        budget_max: +data.budget.max,
         districts: data.districts,
         move_in: data.move_in,
+        lease_months: data.lease_months === "0" || data.lease_months == null ? null : +data.lease_months,
         smoking: data.smoking,
         alcohol: data.alcohol,
         sleep_time: data.sleep_time % 24,
@@ -262,67 +405,158 @@ export default function Onboarding({ initial, onDone, onCancel }) {
         pets_has: data.pets === "has",
         pets_ok: data.pets !== "no",
         sociability: data.sociability,
+        priorities: data.priorities,
         interests: data.interests,
-        lease_months: data.lease_months || 12,
       };
       const saved = await api("/api/me", { method: "POST", body: payload });
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch (e) {}
       haptic("success");
       onDone(saved);
     } catch (e) {
-      alert("Ошибка сохранения: " + e.message);
+      haptic("error");
+      alertUser(
+        e.status === 400 && e.serverMessage
+          ? e.serverMessage
+          : "Не удалось сохранить анкету. Проверь соединение и попробуй ещё раз."
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  const pct = Math.round(((step + 1) / STEPS.length) * 100);
+  const qIndex = STEPS.slice(0, step + 1).filter((x) => x.type !== "count").length;
+  const pct = Math.round((qIndex / Q_TOTAL) * 100);
 
   return (
     <div className="onboard">
-      {onCancel && (
-        <div style={{ marginBottom: 10 }}>
-          <button className="chip" onClick={onCancel}>← Отменить</button>
-        </div>
-      )}
       <div className="progress">
         <div style={{ width: pct + "%" }} />
       </div>
       <div className="step-count">
-        {step + 1} / {STEPS.length}
+        {(step > 0 || editing) && (
+          <button type="button" className="back-link" onClick={back}>
+            ← Назад
+          </button>
+        )}
+        <span>{qIndex} / {Q_TOTAL}</span>
       </div>
       <h1 className="q-title">{s.title}</h1>
       {s.sub && <p className="q-sub">{s.sub}</p>}
 
-      {(s.type === "number" || s.type === "text") && (
+      {s.type === "dob" && (
+        <>
+          <div className="dob-row">
+            {[
+              ["d", "День", "ДД", Array.from({ length: 31 }, (_, i) => [i + 1, i + 1])],
+              ["m", "Месяц", "Месяц", MONTHS.map((n, i) => [i + 1, n])],
+              ["y", "Год", "ГГГГ", YEARS.map((y) => [y, y])],
+            ].map(([part, label, ph, opts]) => (
+              <label className="dob-col" key={part}>
+                <span>{label}</span>
+                <select
+                  className="dob-select"
+                  data-empty={!data.birth[part]}
+                  value={data.birth[part]}
+                  onChange={(e) => setBirth(part, e.target.value)}
+                >
+                  <option value="" disabled>{ph}</option>
+                  {opts.map(([v, l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+          {dobError && <p className="q-err">{dobError}</p>}
+        </>
+      )}
+
+      {s.type === "budget" && (
+        <>
+          <div className="budget-row">
+            <label className="dob-col">
+              <span>От</span>
+              <input
+                className="input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={data.budget.min}
+                onChange={(e) => setBudget("min", e.target.value)}
+              />
+            </label>
+            <label className="dob-col">
+              <span>До</span>
+              <input
+                className="input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={data.budget.max}
+                onChange={(e) => setBudget("max", e.target.value)}
+              />
+            </label>
+          </div>
+          {budgetError && <p className="q-err">{budgetError}</p>}
+        </>
+      )}
+
+      {s.type === "count" && (
+        <div className="count-card">
+          {countState.loading ? (
+            <div className="count-num">…</div>
+          ) : countState.error ? (
+            <p className="count-sub">Не удалось посчитать — просто продолжай, подберём после анкеты.</p>
+          ) : (
+            <>
+              <div className="count-num">≈ {countState.value}</div>
+              <p className="count-sub">
+                {countState.value === 0
+                  ? "Пока никто не подходит по жёстким критериям. Ответь ещё на пару вопросов — посмотрим шире."
+                  : "соседей уже подходят по твоим критериям. Ответь ещё на пару вопросов — подберём точнее."}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {s.type === "text" && (
         <input
           className="input"
-          type={s.type}
-          inputMode={s.type === "number" ? "numeric" : "text"}
+          type="text"
           placeholder={s.placeholder}
-          value={val || ""}
+          value={val ?? ""}
+          maxLength={s.maxLength}
           autoFocus
-          onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
+          onChange={onTextInput}
           onKeyDown={(e) => e.key === "Enter" && canNext && next()}
         />
       )}
-      {numError && (
-        <p className="q-sub" style={{ color: "var(--red, #e05c5c)" }}>
-          {numError}
-        </p>
-      )}
 
-      {s.type === "select" && (
-        <select
-          className="input"
-          value={val || ""}
-          autoFocus
-          onChange={(e) => setData({ ...data, [s.key]: e.target.value })}
-        >
-          <option value="" disabled>Выбери вариант…</option>
-          {s.options.map(([v, label]) => (
-            <option key={v} value={v}>{label}</option>
-          ))}
-        </select>
+      {s.type === "occupation" && (
+        <div className="occ">
+          <select
+            className="dob-select"
+            data-empty={!data.occupation}
+            value={data.occupation ?? ""}
+            onChange={(e) => setData({ ...data, occupation: e.target.value })}
+          >
+            <option value="">{s.placeholder}</option>
+            {s.options.map(([v, label]) => (
+              <option key={v} value={v}>{label}</option>
+            ))}
+          </select>
+          <label className="occ-check">
+            <input
+              type="checkbox"
+              checked={!!data.works}
+              onChange={(e) => setData({ ...data, works: e.target.checked })}
+            />
+            <span>Работаю</span>
+          </label>
+        </div>
       )}
 
       {(s.type === "chips" || s.type === "multichips") && (
@@ -355,13 +589,27 @@ export default function Onboarding({ initial, onDone, onCancel }) {
         </div>
       )}
 
+      {s.type === "priorities" && (
+        <div className="chips">
+          {s.options.map(([v, label]) => (
+            <button
+              key={v}
+              className={"chip" + ((val || []).includes(v) ? " active" : "")}
+              onClick={() => toggleMulti("priorities", v, s.max)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {s.type === "interests" && (
         <div className="chips">
           {s.options.map(([v]) => (
             <button
               key={v}
               className={"chip" + (val.includes(v) ? " active" : "")}
-              onClick={() => toggleInterest(v)}
+              onClick={() => toggleMulti("interests", v, 5)}
             >
               {v}
             </button>
@@ -372,11 +620,11 @@ export default function Onboarding({ initial, onDone, onCancel }) {
       <button className="next-btn" disabled={!canNext || saving} onClick={next}>
         {saving
           ? "Сохраняем…"
-          : step === STEPS.length - 1
-            ? editing
-              ? "Сохранить изменения"
-              : "Начать поиск соседей →"
-            : "Дальше"}
+          : s.type === "count"
+            ? "Продолжить"
+            : step === STEPS.length - 1
+              ? (editing ? "Сохранить изменения" : "Начать поиск соседей →")
+              : "Дальше"}
       </button>
     </div>
   );

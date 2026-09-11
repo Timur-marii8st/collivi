@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic } from "../api";
+import { api, haptic, alertUser, confirmUser } from "../api";
+import Icon from "../Icon";
 
 export default function GroupScreen() {
   const [group, setGroup] = useState(undefined);
@@ -20,28 +21,56 @@ export default function GroupScreen() {
     try {
       await api("/api/group/create", { method: "POST", body: { members: selected } });
       haptic("success");
+      setSelected([]);
       load();
     } catch (e) {
-      alert(e.message);
+      haptic("error");
+      alertUser(e.serverMessage || "Не удалось создать группу. Попробуй ещё раз.");
     } finally {
       setBusy(false);
     }
   }
 
   async function confirmParticipation() {
+    setBusy(true);
     haptic();
-    await api("/api/group/confirm", { method: "POST" });
-    load();
+    try {
+      await api("/api/group/confirm", { method: "POST" });
+      haptic("success");
+      load();
+    } catch (e) {
+      haptic("error");
+      alertUser("Не удалось подтвердить участие. Попробуй ещё раз.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function leave() {
+    const ok = await confirmUser(
+      "Выйти из группы? Если останется меньше двух человек, группа распадётся."
+    );
+    if (!ok) return;
+    setBusy(true);
+    haptic();
+    try {
+      await api("/api/group/leave", { method: "POST" });
+      haptic("success");
+      load();
+    } catch (e) {
+      haptic("error");
+      alertUser("Не удалось выйти из группы. Попробуй ещё раз.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (group === undefined)
-    return <div className="empty"><div className="big">⏳</div></div>;
+    return <div className="empty"><Icon name="loader" className="big" /></div>;
 
   // --- есть группа ---
   if (group) {
     const readyCount = group.members.filter((m) => m.ready).length;
-    const meReady = group.members.find((m) => String(m.tg_id) === String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id))?.ready;
-    // fallback: if initDataUnsafe not available, detect via ready flag of last member matching group creator? use first not-ready as me
     return (
       <div>
         <div className="card">
@@ -52,7 +81,7 @@ export default function GroupScreen() {
             </div>
           </div>
           {group.members.map((m) => (
-            <div className="member-row" key={m.tg_id}>
+            <div className="member-row" key={m.id}>
               <div className={"ready-dot " + (m.ready ? "on" : "")}>
                 {m.ready ? "✓" : "…"}
               </div>
@@ -72,38 +101,35 @@ export default function GroupScreen() {
             <p style={{ textAlign: "center", color: "var(--hint)", marginTop: 16, fontSize: 14 }}>
               Ждём подтверждения: {readyCount}/{group.members.length}
             </p>
-            {!meReady && readyCount < group.members.length && (
-              <button className="next-btn" style={{ marginTop: 14 }} onClick={confirmParticipation}>
+            {!group.ready && (
+              <button
+                className="next-btn"
+                style={{ marginTop: 14 }}
+                disabled={busy}
+                onClick={confirmParticipation}
+              >
                 Подтвердить участие ✓
               </button>
             )}
-            {meReady && (
-              <p style={{ textAlign: "center", color: "var(--btn)", marginTop: 14, fontSize: 14, fontWeight: 600 }}>
-                Ты подтвердил участие ✓
-              </p>
-            )}
-            <button
-              className="act-btn act-no"
-              style={{ marginTop: 10, width: "100%" }}
-              onClick={async () => {
-                // важно: именно window.confirm — локальной функции больше нет
-                if (!window.confirm("Выйти из группы?")) return;
-                await api("/api/group/leave", { method: "POST" });
-                load();
-              }}
-            >
-              Выйти из группы
-            </button>
           </>
         )}
         {group.status === "confirmed" && (
           <div style={{ textAlign: "center", marginTop: 18 }}>
-            <p style={{ color: "var(--btn)", fontWeight: 600 }}>Группа собрана 🎉</p>
+            <p style={{ color: "var(--btn)", fontWeight: 600 }}>Группа собрана</p>
             <p style={{ color: "var(--hint)", fontSize: 13.5, marginTop: 4 }}>
               Смотри вкладку «Квартиры»
             </p>
           </div>
         )}
+
+        <button
+          className="act-btn act-no"
+          style={{ marginTop: 12, width: "100%" }}
+          disabled={busy}
+          onClick={leave}
+        >
+          Выйти из группы
+        </button>
       </div>
     );
   }
@@ -113,10 +139,9 @@ export default function GroupScreen() {
     <div>
       {!conns.length ? (
         <div className="empty">
-          <div className="big">👥</div>
-          Взаимных лайков пока нет.
-          <br />
-          Лайкай соседей во вкладке «Соседи» — при взаимном интересе вы сможете собрать группу.
+          <Icon name="group" className="big" />
+          <p className="empty-title">Взаимных лайков пока нет</p>
+          <p className="empty-text">Лайкай соседей во вкладке «Соседи» — при взаимном интересе сможете собрать группу</p>
         </div>
       ) : (
         <>
@@ -126,17 +151,17 @@ export default function GroupScreen() {
           </p>
           {conns.map((c) => (
             <div
-              key={c.tg_id}
-              className={"conn-card" + (selected.includes(c.tg_id) ? " selected" : "")}
+              key={c.id}
+              className={"conn-card" + (selected.includes(c.id) ? " selected" : "")}
               onClick={() => {
                 haptic();
                 setSelected((s) =>
-                  s.includes(c.tg_id) ? s.filter((x) => x !== c.tg_id) : [...s, c.tg_id]
+                  s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]
                 );
               }}
             >
               <div className="avatar" style={{ width: 44, height: 44, fontSize: 18 }}>
-                {c.first_name[0]}
+                {(c.first_name?.[0] || "?").toUpperCase()}
               </div>
               <div style={{ flex: 1 }}>
                 <b>{c.first_name}</b> {c.age ? `· ${c.age}` : ""}
@@ -144,7 +169,7 @@ export default function GroupScreen() {
                   {c.occupation || "—"} · до {c.budget?.toLocaleString("ru-RU")} ₽
                 </div>
               </div>
-              <div className={"check-circle" + (selected.includes(c.tg_id) ? " on" : "")}>✓</div>
+              <div className={"check-circle" + (selected.includes(c.id) ? " on" : "")}>✓</div>
             </div>
           ))}
           <button

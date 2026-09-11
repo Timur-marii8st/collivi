@@ -1,4 +1,5 @@
 import React from "react";
+import Icon from "../Icon";
 
 const SLEEP = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
 const GUESTS = { never: "без гостей", sometimes: "гости иногда", often: "гости свободно" };
@@ -8,7 +9,14 @@ export default function Profile({ me, onEdit }) {
   const rows = [
     ["Возраст", me.age],
     ["Занятость", me.occupation],
-    ["Бюджет за комнату", me.budget ? `${me.budget.toLocaleString("ru-RU")} ₽` : null],
+    [
+      "Бюджет за комнату",
+      me.budget_min != null && me.budget_max != null
+        ? `${me.budget_min.toLocaleString("ru-RU")}–${me.budget_max.toLocaleString("ru-RU")} ₽`
+        : me.budget
+          ? `${me.budget.toLocaleString("ru-RU")} ₽`
+          : null,
+    ],
     ["Районы", me.districts?.join(", ")],
     ["Курение", me.smoking === "yes" ? "курю" : "не курю"],
     ["Сон", me.sleep_time != null ? `ложусь ~${SLEEP(me.sleep_time)}` : null],
@@ -24,10 +32,13 @@ export default function Profile({ me, onEdit }) {
     <div>
       <div className="card">
         <div className="card-head">
-          <div className="avatar">{me.first_name[0]}</div>
+          <div className="avatar">{(me.first_name?.[0] || "?").toUpperCase()}</div>
           <div>
             <div className="card-name">{me.first_name}</div>
-            <div className="card-sub">@{me.username || "—"} · анкета активна ✅</div>
+            <div className="card-sub">
+              @{me.username || "—"} · анкета активна
+              <Icon name="check" size={14} className="sub-ok" />
+            </div>
           </div>
         </div>
       </div>

@@ -1,16 +1,23 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic, apiPhotoUrl } from "../api";
+import { api, haptic, apiPhotoUrl, alertUser } from "../api";
+import Icon from "../Icon";
 
 export default function Apartments() {
   const [data, setData] = useState(undefined);
   const [marked, setMarked] = useState({});
-  const [photos, setPhotos] = useState({}); // apt_id -> objectURL
+  const [photos, setPhotos] = useState({});
 
   useEffect(() => {
-    api("/api/apartments").then(setData).catch(() => setData({ apartments: [] }));
+    api("/api/apartments")
+      .then((d) => {
+        setData(d);
+        const m = {};
+        (d.apartments || []).forEach((a) => a.interested && (m[a.id] = true));
+        setMarked(m);
+      })
+      .catch(() => setData({ apartments: [] }));
   }, []);
 
-  // фото лежат в Telegram (file_id), приложение тянет их через серверный прокси
   useEffect(() => {
     const apts = data?.apartments || [];
     if (!apts.length) return;
@@ -21,37 +28,39 @@ export default function Apartments() {
         .then((url) => alive && setPhotos((p) => (p[a.id] ? p : { ...p, [a.id]: url })))
         .catch(() => {});
     }
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [data]);
 
   async function interest(id) {
     haptic();
-    setMarked((m) => ({ ...m, [id]: true }));
-    await api(`/api/apartments/${id}/interest`, { method: "POST" }).catch(() => {});
+    try {
+      await api(`/api/apartments/${id}/interest`, { method: "POST" });
+      setMarked((m) => ({ ...m, [id]: true }));
+      haptic("success");
+    } catch (e) {
+      haptic("error");
+      alertUser(e.serverMessage || "Не удалось отправить заявку. Попробуй ещё раз.");
+    }
   }
 
   if (data === undefined)
-    return <div className="empty"><div className="big">⏳</div></div>;
+    return <div className="empty"><Icon name="loader" className="big" /></div>;
 
   if (data.needGroup)
     return (
       <div className="empty">
-        <div className="big">🏠</div>
-        Квартиры появляются после того, как вы соберёте группу.
-        <br /><br />
-        Так мы подбираем варианты точно под ваш общий бюджет.
+        <Icon name="home" className="big" />
+        <p className="empty-title">Сначала соберите группу</p>
+        <p className="empty-text">Квартиры подбираем под общий бюджет группы</p>
       </div>
     );
 
   if (!data.apartments.length)
     return (
       <div className="empty">
-        <div className="big">🔍</div>
-        Подходящих квартир пока нет — мы уже ищем.
-        <br />
-        Заглядывай сюда: варианты добавляются регулярно.
+        <Icon name="search" className="big" />
+        <p className="empty-title">Пока ищем варианты</p>
+        <p className="empty-text">Пришлём уведомление, как только появится подходящая квартира</p>
       </div>
     );
 
@@ -83,14 +92,18 @@ export default function Apartments() {
                 ≈ {a.per_person.toLocaleString("ru-RU")} ₽ / чел
                 {a.fits ? "" : " ⚠️"}
               </span>
-              <button
-                className={"mini-btn" + (marked[a.id] ? " done" : "")}
-                onClick={() => interest(a.id)}
-                disabled={marked[a.id]}
-              >
-                {marked[a.id] ? "✓ Отмечено" : "Интересно!"}
-              </button>
+              {!marked[a.id] && (
+                <button className="mini-btn" onClick={() => interest(a.id)}>
+                  Интересно!
+                </button>
+              )}
             </div>
+            {marked[a.id] && (
+              <div className="apt-interested">
+                <Icon name="check" size={15} />
+                Заявка отправлена — свяжемся с собственником и организуем просмотр
+              </div>
+            )}
           </div>
         </div>
       ))}

@@ -71,7 +71,7 @@ export default function Field({ def, value, onChange }) {
       <span className="adm-label">{label}</span>
       <input
         className="input"
-        type={type === "number" ? "number" : "text"}
+        type={type === "number" ? "number" : type === "date" ? "date" : "text"}
         inputMode={type === "number" ? "numeric" : "text"}
         value={value ?? ""}
         onChange={(e) =>

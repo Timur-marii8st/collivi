@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic } from "../api";
+import { api, haptic, alertUser } from "../api";
+import Icon from "../Icon";
 
 const SLEEP = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
 
@@ -25,20 +26,22 @@ function ScoreRing({ score }) {
 
 function tagsOf(c) {
   const t = [];
-  if (c.budget) t.push(`💰 до ${c.budget.toLocaleString("ru-RU")} ₽`);
-  if (c.smoking === "no") t.push("🚭 не курит");
-  if (c.sleep_time != null) t.push(`🌙 ложится в ${SLEEP(c.sleep_time)}`);
-  if (c.cleanliness >= 7) t.push(`🧹 чистота ${c.cleanliness}/10`);
-  if (c.guests === "sometimes") t.push("🚪 гости иногда");
-  if (c.parties === "no") t.push("🔇 без вечеринок");
-  (c.interests || []).slice(0, 4).forEach((i) => t.push(`✦ ${i}`));
+  if (c.budget_min != null && c.budget_max != null)
+    t.push(`${c.budget_min.toLocaleString("ru-RU")}–${c.budget_max.toLocaleString("ru-RU")} ₽`);
+  else if (c.budget) t.push(`до ${c.budget.toLocaleString("ru-RU")} ₽`);
+  if (c.smoking === "no") t.push("не курит");
+  if (c.sleep_time != null) t.push(`ложится в ${SLEEP(c.sleep_time)}`);
+  if (c.cleanliness >= 7) t.push(`чистота ${c.cleanliness}/10`);
+  if (c.guests === "sometimes") t.push("гости иногда");
+  if (c.parties === "no") t.push("без вечеринок");
+  (c.interests || []).slice(0, 4).forEach((i) => t.push(i));
   return t;
 }
 
 export default function Neighbors() {
   const [cands, setCands] = useState(null);
   const [idx, setIdx] = useState(0);
-  const [leaving, setLeaving] = useState(0);
+  const [leaving, setLeaving] = useState(-1); // -1 = ничья карточка не «уезжает»
 
   const load = () =>
     api("/api/candidates")
@@ -51,30 +54,40 @@ export default function Neighbors() {
     const c = cands[idx];
     haptic();
     setLeaving(idx);
-    await api("/api/like", { method: "POST", body: { to: c.tg_id, like } }).catch(() => {});
-    setTimeout(() => {
+    try {
+      await api("/api/like", { method: "POST", body: { to: c.id, like } });
+      setTimeout(() => {
+        setLeaving(-1);
+        setIdx((i) => i + 1);
+      }, 180);
+    } catch (e) {
       setLeaving(-1);
-      setIdx((i) => i + 1);
-    }, 180);
+      haptic("error");
+      alertUser(e.serverMessage || "Не удалось сохранить выбор. Попробуй ещё раз.");
+    }
   }
 
-  if (!cands) return <div className="empty"><div className="big">⏳</div>Ищем…</div>;
+  if (!cands)
+    return (
+      <div className="empty">
+        <Icon name="loader" className="big" />
+        <p className="empty-text">Ищем соседей…</p>
+      </div>
+    );
   if (!cands.length)
     return (
       <div className="empty">
-        <div className="big">🌱</div>
-        Пока нет подходящих соседей.
-        <br />
-        Загляни позже — новые анкеты появляются каждый день.
+        <Icon name="sprout" className="big" />
+        <p className="empty-title">Пока нет подходящих соседей</p>
+        <p className="empty-text">Уведомим, когда появятся новые анкеты</p>
       </div>
     );
   if (idx >= cands.length)
     return (
       <div className="empty">
-        <div className="big">🎉</div>
-        Это все анкеты на сегодня!
-        <br />
-        Загляни позже — новые соседи уже в пути.
+        <Icon name="check" className="big" />
+        <p className="empty-title">Это все анкеты на сегодня</p>
+        <p className="empty-text">Загляни позже — новые соседи уже в пути</p>
       </div>
     );
 
@@ -85,7 +98,7 @@ export default function Neighbors() {
     <div style={{ opacity: isLeaving ? 0 : 1, transform: isLeaving ? "scale(.96)" : "none", transition: "all .18s ease" }}>
       <div className="card">
         <div className="card-head">
-          <div className="avatar">{c.first_name[0]}</div>
+          <div className="avatar">{(c.first_name?.[0] || "?").toUpperCase()}</div>
           <div style={{ flex: 1 }}>
             <div className="card-name">
               {c.first_name}
@@ -96,7 +109,7 @@ export default function Neighbors() {
           <ScoreRing score={c.score} />
         </div>
 
-        {c.reasons[0] && <div className="reason">✨ {c.reasons[0]}</div>}
+        {c.reasons[0] && <div className="reason">{c.reasons[0]}</div>}
 
         <div className="tags">
           {tagsOf(c).map((t) => (
@@ -106,7 +119,7 @@ export default function Neighbors() {
 
         <div className="actions">
           <button className="act-btn act-no" onClick={() => decide(false)}>Не то</button>
-          <button className="act-btn act-yes" onClick={() => decide(true)}>Хочу жить 👋</button>
+          <button className="act-btn act-yes" onClick={() => decide(true)}>Хочу жить</button>
         </div>
       </div>
       <p style={{ textAlign: "center", color: "var(--hint)", fontSize: 12.5, marginTop: 14 }}>
