@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs && node boot.mjs && node authed.mjs && node confirm-resilience.mjs",
+    "test": "node migration.mjs && node run.mjs && node boot.mjs && node authed.mjs && node confirm-resilience.mjs",
     "dev-api": "node dev-server.mjs"
   },
   "dependencies": {
