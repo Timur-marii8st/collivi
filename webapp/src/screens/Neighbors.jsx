@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api, haptic } from "../api";
+import { api, haptic, alertUser } from "../api";
 import Icon from "../Icon";
 
 const SLEEP = (h) => `${String(((h % 24) + 24) % 24).padStart(2, "0")}:00`;
@@ -54,11 +54,17 @@ export default function Neighbors() {
     const c = cands[idx];
     haptic();
     setLeaving(idx);
-    await api("/api/like", { method: "POST", body: { to: c.id, like } }).catch(() => {});
-    setTimeout(() => {
+    try {
+      await api("/api/like", { method: "POST", body: { to: c.id, like } });
+      setTimeout(() => {
+        setLeaving(-1);
+        setIdx((i) => i + 1);
+      }, 180);
+    } catch (e) {
       setLeaving(-1);
-      setIdx((i) => i + 1);
-    }, 180);
+      haptic("error");
+      alertUser(e.serverMessage || "Не удалось сохранить выбор. Попробуй ещё раз.");
+    }
   }
 
   if (!cands)
